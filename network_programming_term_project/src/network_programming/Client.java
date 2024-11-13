@@ -1,4 +1,4 @@
-package network_programming_term_project;
+package network_programming;
 
 import java.io.*;
 import java.net.*;
