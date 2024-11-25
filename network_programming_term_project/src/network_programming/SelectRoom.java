@@ -5,12 +5,12 @@ import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 
-public class RoomSelection extends JFrame {
+public class SelectRoom extends JFrame {
 	
     private static final long serialVersionUID = 1L; // 직렬화 버전 ID 추가
 
-    public RoomSelection(String username) {
-    	setTitle("카드 게임 방 선택"); // 창 제목 설정
+    public SelectRoom(String username) {
+    	setTitle("게임룸 입장"); // 창 제목 설정
         setSize(1280, 720); // 창 크기 설정 (1280x720 해상도)        
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE); // 창 닫기 시 프로그램 종료
         setLocationRelativeTo(null); // 창을 화면 중앙에 배치
@@ -81,6 +81,6 @@ public class RoomSelection extends JFrame {
     }
     
     public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> new RoomSelection("player1")); // 프로그램 실행
+        SwingUtilities.invokeLater(() -> new SelectRoom("player1")); // 프로그램 실행
     }
 }

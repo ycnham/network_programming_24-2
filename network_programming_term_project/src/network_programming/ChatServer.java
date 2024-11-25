@@ -26,7 +26,7 @@ public class ChatServer {
             e.printStackTrace();
         }
     }
-
+    
     static class UserService extends Thread {
         private final Socket socket;
         private DataInputStream dis;

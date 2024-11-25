@@ -91,10 +91,10 @@ public class ChatClientMain extends JFrame {
 		@Override
 		public void actionPerformed(ActionEvent e) {
 			String username = txtUserName.getText().trim();
-			String ip_addr = txtIpAddress.getText().trim();
-			String port_no = txtPortNumber.getText().trim();
+			String ipAddress = txtIpAddress.getText().trim();
+			String port = txtPortNumber.getText().trim();
 			@SuppressWarnings("unused")
-			ChatClientView view = new ChatClientView(username, ip_addr, port_no);
+			ChatClientView view = new ChatClientView(username, ipAddress, port);
 			
 			// 기존 창 숨기기
 			setVisible(false);
@@ -106,7 +106,7 @@ public class ChatClientMain extends JFrame {
 	        gamePanel.setLayout(new BorderLayout());
 
 	        // 채팅 UI 생성
-	        ChatClientView chatView = new ChatClientView(username, ip_addr, port_no);
+	        ChatClientView chatView = new ChatClientView(username, ipAddress, port);
 
 	        // 게임 화면 추가 (샘플로 채팅 UI 오른쪽에 배치)
 	        JPanel cardGamePanel = new JPanel(); // 실제 카드 게임 구현은 별도로 작성 필요
