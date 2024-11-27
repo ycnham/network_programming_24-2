@@ -1,4 +1,6 @@
-package network_programming;
+// 제일 나중에 이 페이지 추가할지 상황 보는 거로,,, 
+
+package ui;
 
 import javax.swing.*;
 import java.awt.*;

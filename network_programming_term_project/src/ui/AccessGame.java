@@ -1,4 +1,4 @@
-package network_programming;
+package ui;
 
 import java.awt.*;
 import javax.swing.*;
