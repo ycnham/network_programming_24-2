@@ -1,3 +1,4 @@
+// 클라이언트 측 채팅 UI와 서버를 연결
 package client;
 
 import javax.swing.*;

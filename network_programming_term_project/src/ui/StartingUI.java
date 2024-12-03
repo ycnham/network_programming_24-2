@@ -1,10 +1,12 @@
+// 게임 초기 접속 화면
 package ui;
 
 import java.awt.*;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import client.ChatClientMain;
 
-public class AccessGame extends JFrame {
+public class StartingUI extends JFrame {
 
     private static final long serialVersionUID = 1L;
     private JPanel contentPane;
@@ -15,7 +17,7 @@ public class AccessGame extends JFrame {
     public static void main(String[] args) {
         EventQueue.invokeLater(() -> {
             try {
-            	AccessGame frame = new AccessGame();
+            	StartingUI frame = new StartingUI();
                 frame.setVisible(true);
             } catch (Exception e) {
                 e.printStackTrace();
@@ -23,7 +25,7 @@ public class AccessGame extends JFrame {
         });
     }
 
-    public AccessGame() {
+    public StartingUI() {
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setBounds(100, 100, 1280, 720);
         
@@ -85,6 +87,15 @@ public class AccessGame extends JFrame {
         contentPane.add(enterButton);
     }
 
+    // username, ipAddress, port를 받는 생성자 추가
+    public StartingUI(String username, String ipAddress, String port) {
+        this(); // 기본 생성자 호출
+        // 전달받은 값들을 필드에 세팅
+        usernameField.setText(username);
+//        ipAddressField.setText(ipAddress);
+//        portField.setText(port);
+    }
+    
     // 입장하기 버튼 클릭 시 동작할 메서드
     private void enterGame() {
         String username = usernameField.getText();
@@ -102,10 +113,10 @@ public class AccessGame extends JFrame {
                 throw new NumberFormatException();
             }
 
-            // MainGame 화면으로 전환
-            MainGame mainGame = new MainGame(username, ipAddress, port);
-            mainGame.setVisible(true);
-            this.dispose(); // 현재 창 닫기
+            // StartingUI 화면을 종료하고 GameUI 화면을 시작
+            this.dispose(); // 현재 StartingUI 창을 닫음
+            ChatClientMain parentFrame = new ChatClientMain(); // ChatClientMain 객체 생성
+            GameUI gameUI = new GameUI(username, ipAddress, port, parentFrame); // GameUI 객체 생성
         } catch (NumberFormatException e) {
             JOptionPane.showMessageDialog(this, "유효한 포트 번호를 입력해주세요.", "오류", JOptionPane.ERROR_MESSAGE);
         }
