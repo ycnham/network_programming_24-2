@@ -116,7 +116,7 @@ public class StartingUI extends JFrame {
             // StartingUI 화면을 종료하고 GameUI 화면을 시작
             this.dispose(); // 현재 StartingUI 창을 닫음
             ChatClientMain parentFrame = new ChatClientMain(); // ChatClientMain 객체 생성
-            GameUI gameUI = new GameUI(username, ipAddress, port, parentFrame); // GameUI 객체 생성
+            new GameUI(username, ipAddress, port, parentFrame); // GameUI 객체 생성 (변수는 필요하지 않음)
         } catch (NumberFormatException e) {
             JOptionPane.showMessageDialog(this, "유효한 포트 번호를 입력해주세요.", "오류", JOptionPane.ERROR_MESSAGE);
         }

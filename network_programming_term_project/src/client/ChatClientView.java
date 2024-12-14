@@ -8,9 +8,12 @@ import java.awt.event.ActionListener;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.io.Serializable;
 import java.net.Socket;
 
-public class ChatClientView extends JPanel {
+public class ChatClientView extends JPanel implements Serializable {
+    private static final long serialVersionUID = 1L;  // serialVersionUID 추가
+
     private final JTextArea chatArea; // 채팅 내용을 표시하는 텍스트 영역
     private final JTextField inputField; // 메시지를 입력하는 텍스트 필드
     private final JButton sendButton;
@@ -65,21 +68,21 @@ public class ChatClientView extends JPanel {
         sendButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                sendMessage();
+                sendMessage(inputField.getText().trim());  // inputField의 텍스트를 전달
             }
         });
 
         inputField.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                sendMessage();
+                sendMessage(inputField.getText().trim());  // inputField의 텍스트를 전달
             }
         });
     }
 
     // 메시지를 서버로 전송
-    private void sendMessage() {
-        String message = inputField.getText().trim();
+    public void sendMessage(String message) {
+//        String message = inputField.getText().trim();
         if (!message.isEmpty()) {
             try {
                 dos.writeUTF(message); // 서버로 메시지 전송
