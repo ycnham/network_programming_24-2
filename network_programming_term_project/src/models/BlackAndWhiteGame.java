@@ -67,4 +67,12 @@ public class BlackAndWhiteGame {
   public boolean isReadyToStart() {
     return true; // 조건 없이 바로 시작할 수 있도록 설정
   }
+
+  // 현재 참여한 플레이어 수 반환
+  public int getPlayerCount() {
+    int count = 0;
+    if (player1 != null) count++;
+    if (player2 != null) count++;
+    return count;
+  }
 }
