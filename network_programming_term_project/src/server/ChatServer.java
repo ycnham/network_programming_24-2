@@ -1,5 +1,7 @@
 package server;
 
+import models.Card;
+
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -7,39 +9,32 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Vector;
 
-/**
- * ChatServer 클래스: 서버 소켓을 생성하고 클라이언트와의 연결 및 통신을 관리합니다.
- */
 public class ChatServer {
-    private static ServerSocket serverSocket; // 서버 소켓
+    private static ServerSocket serverSocket;
     private static final Vector<UserService> userVec = new Vector<>(); // 연결된 사용자 목록
-    private static int leaderAssigned = 0; // 리더가 지정되었는지 여부 (0: 미지정, 1: 리더 있음)
+    private static final Object lock = new Object(); // 동기화를 위한 락
 
     public static void main(String[] args) {
         try {
-            serverSocket = new ServerSocket(30000); // 포트 30000에서 서버 시작
+            serverSocket = new ServerSocket(30000);
             System.out.println("Chat Server Running on port 30000...");
 
             while (true) {
-                // 클라이언트 연결 요청 수락
                 Socket clientSocket = serverSocket.accept();
                 UserService newUser = new UserService(clientSocket);
 
                 synchronized (userVec) {
-                    userVec.add(newUser); // 사용자 목록에 추가
+                    userVec.add(newUser);
                 }
 
-                newUser.start(); // 사용자와의 통신 스레드 시작
-                broadcastPlayerCount(); // 현재 플레이어 수를 클라이언트에게 전송
+                newUser.start();
+                broadcastPlayerCount();
             }
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
 
-    /**
-     * 모든 사용자에게 현재 접속한 플레이어 수를 브로드캐스트합니다.
-     */
     private static void broadcastPlayerCount() {
         synchronized (userVec) {
             String message = "PLAYER_COUNT:" + userVec.size();
@@ -53,14 +48,14 @@ public class ChatServer {
         }
     }
 
-    /**
-     * 클라이언트와 통신을 처리하는 스레드 클래스
-     */
     static class UserService extends Thread {
-        private final Socket socket; // 클라이언트 소켓
-        private DataInputStream dis; // 입력 스트림
-        private DataOutputStream dos; // 출력 스트림
-        private String username; // 사용자 이름
+        private final Socket socket;
+        private DataInputStream dis;
+        private DataOutputStream dos;
+        private String username;
+
+        private static Card player1Card, player2Card; // 각 플레이어의 카드
+        private static int player1Score = 0, player2Score = 0;
 
         public UserService(Socket socket) {
             this.socket = socket;
@@ -75,27 +70,26 @@ public class ChatServer {
         @Override
         public void run() {
             try {
+                // 클라이언트로부터 사용자 이름을 수신
                 username = dis.readUTF();
                 System.out.println(username + " connected.");
 
                 synchronized (userVec) {
-                    if (leaderAssigned == 0) {
-                        sendMessage("PLAYER_NUMBER:1"); // 리더 지정
-                        leaderAssigned = 1;
-                    } else {
-                        sendMessage("PLAYER_NUMBER:2");
-                    }
+                    int playerNumber = userVec.indexOf(this) + 1;
+                    sendMessage("PLAYER_NUMBER:" + playerNumber); // 클라이언트에게 플레이어 번호 전달
+                    broadcast(username + " has joined as Player " + playerNumber); // 다른 사용자들에게 알림
                 }
-
-                broadcast(username + " joined the chat.");
-                broadcastPlayerCount();
 
                 String message;
                 while ((message = dis.readUTF()) != null) {
-                    if (message.equals("GAME_START")) {
-                        broadcast("GAME_START"); // 게임 시작 메시지 브로드캐스트
-                        System.out.println("GAME_START message sent to all clients.");
+                    if (message.startsWith("CARD_SELECTED:")) {
+                        // 카드 선택 처리
+                        handleCardSelection(message);
+                    } else if (message.equals("GAME_START")) {
+                        // 게임 시작 메시지 브로드캐스트
+                        broadcast("GAME_START");
                     } else {
+                        // 일반 채팅 메시지 처리
                         broadcast(username + ": " + message);
                     }
                 }
@@ -106,42 +100,56 @@ public class ChatServer {
             }
         }
 
+        // 카드 선택 처리 메서드
+        private void handleCardSelection(String message) {
+            try {
+                int cardNumber = Integer.parseInt(message.split(":")[1]);
+                synchronized (lock) {
+                    if (userVec.indexOf(this) == 0) {
+                        player1Card = new Card(cardNumber);
+                        broadcast("PLAYER1_CARD_SELECTED:" + cardNumber);
+                    } else {
+                        player2Card = new Card(cardNumber);
+                        broadcast("PLAYER2_CARD_SELECTED:" + cardNumber);
+                    }
+
+                    // 양쪽 플레이어가 모두 카드를 선택한 경우 결과 처리
+                    if (player1Card != null && player2Card != null) {
+                        determineRoundResult();
+                        player1Card = null;
+                        player2Card = null;
+                    }
+                }
+            } catch (NumberFormatException e) {
+                System.err.println("Invalid card number received: " + message);
+            }
+        }
+
+        // 라운드 결과를 처리하는 메서드
+        private void determineRoundResult() {
+            String result;
+            if (player1Card.getNumber() > player2Card.getNumber()) {
+                player1Score++;
+                result = "ROUND_RESULT:Player1_Wins";
+            } else if (player1Card.getNumber() < player2Card.getNumber()) {
+                player2Score++;
+                result = "ROUND_RESULT:Player2_Wins";
+            } else {
+                result = "ROUND_RESULT:Draw";
+            }
+
+            // 결과 및 점수 브로드캐스트
+            broadcast(result + ":" + player1Score + ":" + player2Score);
+        }
 
         public void sendMessage(String message) throws IOException {
             dos.writeUTF(message);
             dos.flush();
         }
 
-        public String getUsername() {
-            return username;
-        }
-
         private void cleanup() {
             synchronized (userVec) {
                 userVec.remove(this);
-
-                // 리더가 나간 경우 새로운 리더 지정
-                if (leaderAssigned == 1 && userVec.size() > 0 && this == userVec.firstElement()) {
-                    try {
-                        UserService newLeader = userVec.firstElement();
-                        newLeader.sendMessage("PLAYER_NUMBER:1"); // 새 리더 지정
-                        leaderAssigned = 1; // 리더 상태 유지
-                        System.out.println(newLeader.getUsername() + " is reassigned as leader.");
-                    } catch (IOException e) {
-                        System.err.println("Failed to reassign leader.");
-                    }
-                }
-
-                if (userVec.isEmpty()) {
-                    leaderAssigned = 0; // 모든 사용자가 나간 경우 리더 초기화
-                }
-            }
-            broadcast(username + " left the chat.");
-            broadcastPlayerCount(); // 접속자 수 갱신
-            try {
-                socket.close();
-            } catch (IOException e) {
-                e.printStackTrace();
             }
         }
 
@@ -155,6 +163,10 @@ public class ChatServer {
                     }
                 }
             }
+        }
+
+        public String getUsername() {
+            return username;
         }
     }
 }

@@ -43,4 +43,8 @@ public class Player {
     }
     points = 0;
   }
+
+  public void setPoints(int points) {
+    this.points = points;
+  }
 }
