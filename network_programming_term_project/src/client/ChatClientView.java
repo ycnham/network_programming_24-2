@@ -109,6 +109,10 @@ public class ChatClientView extends JPanel {
         }
     }
 
+    public DataInputStream getInputStream() {
+        return dis;
+    }
+    
     public DataOutputStream getOutputStream() {
         return dos;
     }

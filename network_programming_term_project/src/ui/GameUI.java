@@ -93,6 +93,4 @@ public class GameUI {
             startingUI.setVisible(true); // StartingUI 창 표시
         }
     }
-
-
 }
