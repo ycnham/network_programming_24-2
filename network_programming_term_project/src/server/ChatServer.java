@@ -8,11 +8,17 @@ import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Vector;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 public class ChatServer {
     private static ServerSocket serverSocket;
     private static final Vector<UserService> userVec = new Vector<>(); // 연결된 사용자 목록
+    private static final ConcurrentMap<String, Boolean> playerReadyMap = new ConcurrentHashMap<>(); // 플레이어 준비 상태
     private static final Object lock = new Object(); // 동기화를 위한 락
+    private static int roundNumber = 1;
+
+    private static final int MAX_ROUNDS = 9;
 
     public static void main(String[] args) {
         try {
@@ -48,6 +54,27 @@ public class ChatServer {
         }
     }
 
+    private static void checkAllReady() {
+        System.out.println("Checking all ready. Current state: " + playerReadyMap);
+        if (playerReadyMap.size() == 2 && playerReadyMap.values().stream().allMatch(Boolean::booleanValue)) {
+            broadcast("GAME_START");
+        } else {
+            System.out.println("Not all players are ready.");
+        }
+    }
+
+    private static void broadcast(String message) {
+        synchronized (userVec) {
+            for (UserService user : userVec) {
+                try {
+                    user.sendMessage(message);
+                } catch (IOException e) {
+                    System.err.println("Failed to send message to " + user.getUsername());
+                }
+            }
+        }
+    }
+
     static class UserService extends Thread {
         private final Socket socket;
         private DataInputStream dis;
@@ -60,8 +87,10 @@ public class ChatServer {
         public UserService(Socket socket) {
             this.socket = socket;
             try {
+                System.out.println("[DEBUG] UserService 생성자 호출됨");
                 dis = new DataInputStream(socket.getInputStream());
                 dos = new DataOutputStream(socket.getOutputStream());
+                System.out.println("[DEBUG] Input/Output 스트림 초기화 완료");
             } catch (IOException e) {
                 System.err.println("Failed to initialize streams.");
             }
@@ -69,6 +98,7 @@ public class ChatServer {
 
         @Override
         public void run() {
+            System.out.println("[DEBUG] UserService run() 시작됨. 사용자: " + username);
             try {
                 // 클라이언트로부터 사용자 이름을 수신
                 username = dis.readUTF();
@@ -82,12 +112,18 @@ public class ChatServer {
 
                 String message;
                 while ((message = dis.readUTF()) != null) {
+                    System.out.println("[DEBUG] 수신된 메시지: " + message); // 메시지 로그 출력
                     if (message.startsWith("CARD_SELECTED:")) {
                         // 카드 선택 처리
                         handleCardSelection(message);
+                    } else if (message.equals("READY")) {
+                        System.out.println("[DEBUG] READY 메시지 처리 시작");
+                        // 준비 완료 처리
+                        handleReadyState();
                     } else if (message.equals("GAME_START")) {
-                        // 게임 시작 메시지 브로드캐스트
-                        broadcast("GAME_START");
+                        System.out.println("[DEBUG] GAME_START 메시지 수신됨");
+                        // 게임 시작 요청 처리
+                        handleGameStart();
                     } else {
                         // 일반 채팅 메시지 처리
                         broadcast(username + ": " + message);
@@ -100,7 +136,42 @@ public class ChatServer {
             }
         }
 
-        // 카드 선택 처리 메서드
+        private void handleGameStart() {
+            synchronized (userVec) {
+                // 리더 플레이어 준비 상태 강제 설정
+                if (!playerReadyMap.containsKey(username)) {
+                    playerReadyMap.put(username, true);
+                    System.out.println("[DEBUG] 리더 플레이어 " + username + " 준비 상태 강제 설정");
+                }
+                if (userVec.size() < 2) {
+                    try {
+                        sendMessage("WAITING_FOR_PLAYERS"); // 플레이어가 충분하지 않음을 알림
+                    } catch (IOException e) {
+                        System.err.println("Failed to notify player about insufficient players.");
+                    }
+                    return;
+                }
+
+                if (playerReadyMap.size() == 2 && playerReadyMap.values().stream().allMatch(Boolean::booleanValue)) {
+                    broadcast("GAME_START");
+                    System.out.println("Game has started!");
+                } else {
+                    try {
+                        sendMessage("NOT_ALL_READY"); // 모두 준비되지 않았음을 알림
+                    } catch (IOException e) {
+                        System.err.println("Failed to notify player about readiness.");
+                    }
+                }
+            }
+        }
+
+        private void handleReadyState() {
+            playerReadyMap.put(username, true);
+            System.out.println("[DEBUG] handleReadyState 호출됨. " + username + " 준비 완료. playerReadyMap 상태: " + playerReadyMap);;
+            broadcast("PLAYER_READY:" + username);
+            checkAllReady();
+        }
+
         private void handleCardSelection(String message) {
             try {
                 int cardNumber = Integer.parseInt(message.split(":")[1]);
@@ -125,7 +196,6 @@ public class ChatServer {
             }
         }
 
-        // 라운드 결과를 처리하는 메서드
         private void determineRoundResult() {
             String result;
             if (player1Card.getNumber() > player2Card.getNumber()) {
@@ -140,6 +210,21 @@ public class ChatServer {
 
             // 결과 및 점수 브로드캐스트
             broadcast(result + ":" + player1Score + ":" + player2Score);
+            broadcast("ROUND_END:" + roundNumber++);
+
+            if (roundNumber > MAX_ROUNDS) {
+                broadcast("GAME_OVER:" + player1Score + ":" + player2Score);
+                resetGame();
+            } else {
+                broadcast("ROUND_END:" + roundNumber++);
+            }
+        }
+
+        private void resetGame() {
+            player1Score = 0;
+            player2Score = 0;
+            roundNumber = 1;
+            broadcast("RESET_GAME");
         }
 
         public void sendMessage(String message) throws IOException {
@@ -151,18 +236,14 @@ public class ChatServer {
             synchronized (userVec) {
                 userVec.remove(this);
             }
-        }
+            playerReadyMap.remove(username);
+            broadcast("PLAYER_DISCONNECTED:" + username);
 
-        private void broadcast(String message) {
-            synchronized (userVec) {
-                for (UserService user : userVec) {
-                    try {
-                        user.sendMessage(message);
-                    } catch (IOException e) {
-                        System.err.println("Failed to send message to " + user.getUsername());
-                    }
-                }
+            // 연결 종료 후 대기 상태 전환
+            if (userVec.size() < 2) {
+                broadcast("WAITING_FOR_PLAYERS");
             }
+            broadcastPlayerCount();
         }
 
         public String getUsername() {

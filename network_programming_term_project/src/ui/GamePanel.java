@@ -68,6 +68,8 @@ public class GamePanel extends JPanel {
     gameScreen = new JPanel(new BorderLayout());
     setupGameScreen();
     add(gameScreen, "GAME_SCREEN");
+
+    setupReadyButton();
   }
 
   /**
@@ -75,27 +77,45 @@ public class GamePanel extends JPanel {
    */
   public void handleServerMessage(String message) {
     SwingUtilities.invokeLater(() -> {
+      System.out.println("[DEBUG] 서버로부터 메시지 수신: " + message);
       try {
         if (message.startsWith("PLAYER_NUMBER:")) {
           isLeader = Integer.parseInt(message.split(":")[1]) == 1;
-          System.out.println("[DEBUG] PLAYER_NUMBER 처리: isLeader = " + isLeader); // 리더 여부 로그
           setLeader(isLeader);
         } else if (message.startsWith("PLAYER_COUNT:")) {
           playerCount = Integer.parseInt(message.split(":")[1]);
-          System.out.println("[DEBUG] PLAYER_COUNT 처리: playerCount = " + playerCount); // 플레이어 수 로그
           waitingLabel.setText("게임 시작 대기중...");
         } else if (message.equals("GAME_START")) {
-          System.out.println("[DEBUG] GAME_START 처리");
           startGame();
+        } else if (message.startsWith("PLAYER_READY:")) {
+          String playerName = message.split(":")[1];
+          waitingLabel.setText(playerName + " 준비 완료");
         } else if (message.startsWith("ROUND_RESULT")) {
           String[] parts = message.split(":");
-          String result = parts[1];
-          int player1Score = Integer.parseInt(parts[2]);
-          int player2Score = Integer.parseInt(parts[3]);
+          int opponentCardNumber = Integer.parseInt(parts[1]);
+          String winner = parts[2];
+          int player1Score = Integer.parseInt(parts[3]);
+          int player2Score = Integer.parseInt(parts[4]);
 
+          // 상대방 카드 표시
+          Card opponentCard = new Card(opponentCardNumber); // 카드 객체 생성
+          player1CenterCard.setIcon(opponentCard.getCardImage(true));
+
+          // 점수 업데이트
           game.getPlayer1().setPoints(player1Score);
           game.getPlayer2().setPoints(player2Score);
           updateScores();
+
+          // 승리 메시지
+          if ("Player1".equals(winner)) {
+            JOptionPane.showMessageDialog(this, "Player 1 승리!", "결과", JOptionPane.INFORMATION_MESSAGE);
+          } else if ("Player2".equals(winner)) {
+            JOptionPane.showMessageDialog(this, "Player 2 승리!", "결과", JOptionPane.INFORMATION_MESSAGE);
+          } else {
+            JOptionPane.showMessageDialog(this, "무승부!", "결과", JOptionPane.INFORMATION_MESSAGE);
+          }
+
+          startRound(); // 다음 라운드 준비
         }
       } catch (Exception e) {
         e.printStackTrace();
@@ -109,34 +129,31 @@ public class GamePanel extends JPanel {
   public void setLeader(boolean leader) {
     this.isLeader = leader;
 
-    System.out.println("[DEBUG] setLeader 호출됨. 리더 여부: " + (isLeader ? "리더" : "비리더"));
-
     SwingUtilities.invokeLater(() -> {
-      try {
-        System.out.println("[DEBUG] UI 갱신 시작");
+      startScreen.removeAll();
+      startScreen.setLayout(new BorderLayout());
 
-        startScreen.removeAll();
-        startScreen.setLayout(new BorderLayout());
+      if (isLeader) {
+        startButton = new JButton("게임 시작");
+        startButton.setFont(new Font("굴림", Font.BOLD, 20));
+        startButton.addActionListener(e -> startGameRequest());
+        startScreen.add(startButton, BorderLayout.CENTER);
+      } else {
+        waitingLabel.setText("게임 시작 대기중...");
+        startScreen.add(waitingLabel, BorderLayout.CENTER);
 
-        if (isLeader) {
-          startButton = new JButton("게임 시작");
-          startButton.setFont(new Font("굴림", Font.BOLD, 20));
-          startButton.addActionListener(e -> startGameRequest());
-          startScreen.add(startButton, BorderLayout.CENTER);
-          System.out.println("[DEBUG] 게임 시작 버튼 추가됨");
-        } else {
-          waitingLabel.setText("게임 시작 대기중...");
-          startScreen.add(waitingLabel, BorderLayout.CENTER);
-          System.out.println("[DEBUG] 대기 메시지 추가됨");
-        }
-
-        startScreen.revalidate();
-        startScreen.repaint();
-        System.out.println("[DEBUG] UI 갱신 완료");
-      } catch (Exception e) {
-        e.printStackTrace();
-        System.err.println("[ERROR] setLeader 중 예외 발생: " + e.getMessage());
+        // "준비" 버튼 추가
+        readyButton = new JButton("준비");
+        readyButton.setFont(new Font("굴림", Font.BOLD, 20));
+        readyButton.addActionListener(e -> {
+          System.out.println("[DEBUG] 준비 버튼 클릭됨");
+          sendReadySignal();
+        });
+        startScreen.add(readyButton, BorderLayout.SOUTH); // 버튼 추가
       }
+
+      startScreen.revalidate();
+      startScreen.repaint();
     });
   }
 
@@ -152,17 +169,37 @@ public class GamePanel extends JPanel {
     }
   }
 
+  private void sendReadySignal() {
+    try {
+      dos.writeUTF("READY");
+      dos.flush();
+      System.out.println("[DEBUG] READY 신호 전송 완료");
+    } catch (IOException e) {
+      System.err.println("[ERROR] READY 신호 전송 실패: " + e.getMessage());
+      e.printStackTrace();
+    }
+  }
+
+  private JButton readyButton;
+
+  private void setupReadyButton() {
+    readyButton = new JButton("준비");
+    readyButton.setFont(new Font("굴림", Font.BOLD, 20));
+    readyButton.addActionListener(e -> {
+      System.out.println("[DEBUG] 준비 버튼 클릭됨");
+      sendReadySignal();
+    });
+    startScreen.add(readyButton, BorderLayout.SOUTH);
+  }
+
   /**
    * 게임 시작: 게임 화면으로 전환
    */
   private void startGame() {
-    System.out.println("[DEBUG] startGame 호출됨. 게임 화면으로 전환 시도.");
-    cardLayout.show(this, "GAME_SCREEN"); // 게임 화면으로 전환
-    revalidate(); // UI 강제 갱신
-    repaint();
-    System.out.println("[DEBUG] 게임 화면으로 전환 완료.");
-    renderCards(); // 카드 렌더링
-    startRound(); // 라운드 시작
+    System.out.println("[DEBUG] 게임 시작 화면으로 전환");
+    cardLayout.show(this, "GAME_SCREEN");
+    renderCards();
+    startRound();
   }
 
   /**
@@ -170,18 +207,18 @@ public class GamePanel extends JPanel {
    */
   private void setupGameScreen() {
     // 좌측 라운드 및 점수 표시
-    JPanel scorePanel = new JPanel(new GridLayout(4, 1)); // 4개의 항목을 표시하기 위해 GridLayout 크기 변경
+    JPanel scorePanel = new JPanel(new GridLayout(4, 1));
     roundLabel = new JLabel("Round: 1", SwingConstants.CENTER);
     player1ScoreLabel = new JLabel("Player1: 0", SwingConstants.CENTER);
     player2ScoreLabel = new JLabel("Player2: 0", SwingConstants.CENTER);
-    timerLabel = new JLabel("남은 시간: 30초", SwingConstants.CENTER); // timerLabel 초기화
+    timerLabel = new JLabel("남은 시간: 30초", SwingConstants.CENTER);
 
     scorePanel.add(roundLabel);
     scorePanel.add(player1ScoreLabel);
     scorePanel.add(player2ScoreLabel);
-    scorePanel.add(timerLabel); // timerLabel 추가
+    scorePanel.add(timerLabel);
 
-    gameScreen.add(scorePanel, BorderLayout.WEST); // scorePanel 추가
+    gameScreen.add(scorePanel, BorderLayout.WEST);
 
     // 중앙 카드 배치 패널
     JPanel centerPanel = new JPanel(new GridLayout(1, 2));
@@ -196,7 +233,7 @@ public class GamePanel extends JPanel {
 
     centerPanel.add(player1CenterCard);
     centerPanel.add(player2CenterCard);
-    gameScreen.add(centerPanel, BorderLayout.CENTER); // centerPanel 추가
+    gameScreen.add(centerPanel, BorderLayout.CENTER);
 
     // 상대방 카드 패널 (상단)
     player1CardsPanel = new JPanel(new FlowLayout());
@@ -204,7 +241,7 @@ public class GamePanel extends JPanel {
       JLabel cardBack = new JLabel(new ImageIcon("Card-Back.png"));
       player1CardsPanel.add(cardBack);
     }
-    gameScreen.add(player1CardsPanel, BorderLayout.NORTH); // player1CardsPanel 추가
+    gameScreen.add(player1CardsPanel, BorderLayout.NORTH);
 
     // 내 카드 패널 (하단)
     player2CardsPanel = new JPanel(new FlowLayout());
@@ -216,7 +253,7 @@ public class GamePanel extends JPanel {
       });
       player2CardsPanel.add(cardButton);
     }
-    gameScreen.add(player2CardsPanel, BorderLayout.SOUTH); // player2CardsPanel 추가
+    gameScreen.add(player2CardsPanel, BorderLayout.SOUTH);
   }
 
   /**
@@ -268,19 +305,17 @@ public class GamePanel extends JPanel {
       return;
     }
     warningLabel.setText("");
-    Random random = new Random();
-    Card opponentCard = game.getPlayer1().getCards().get(random.nextInt(game.getPlayer1().getCards().size()));
 
-    // 중앙 카드 영역에 카드 표시
-    player1CenterCard.setIcon(opponentCard.getCardImage(true));
-    player2CenterCard.setIcon(selectedCard.getCardImage(true));
+    try {
+      // 선택된 카드 정보를 서버로 전송
+      dos.writeUTF("CARD_SELECTED:" + selectedCard.getNumber());
+      dos.flush();
 
-    // 라운드 처리 호출
-    processRound(opponentCard);
-
-    // 게임 로직 처리
-    game.playRound(opponentCard, selectedCard);
-    updateScores();
+      // 선택된 카드 UI에 표시
+      player2CenterCard.setIcon(selectedCard.getCardImage(true));
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
   }
 
   /**
