@@ -1,95 +1,134 @@
-// 클라이언트 측 채팅 UI와 서버를 연결
 package client;
+
+import ui.GamePanel;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.io.Serializable;
 import java.net.Socket;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
-public class ChatClientView extends JPanel implements Serializable {
-    private static final long serialVersionUID = 1L;  // serialVersionUID 추가
+/**
+ * ChatClientView 클래스: 채팅 메시지를 송수신하고 게임 상태를 제어합니다.
+ */
+public class ChatClientView extends JPanel {
+    private final JTextArea chatArea; // 채팅창
+    private final JTextField inputField; // 입력 필드
+    private final JButton sendButton; // 전송 버튼
 
-    private final JTextArea chatArea; // 채팅 내용을 표시하는 텍스트 영역
-    private final JTextField inputField; // 메시지를 입력하는 텍스트 필드
-    private final JButton sendButton;
-
-    private DataInputStream dis;
-    private DataOutputStream dos;
-    private Socket socket;
+    private DataInputStream dis; // 서버 입력 스트림
+    private DataOutputStream dos; // 서버 출력 스트림
+    private GamePanel gamePanel; // 게임 패널 참조
+    private final Queue<String> messageQueue = new ConcurrentLinkedQueue<>(); // 미처리 메시지 큐
 
     public ChatClientView(String username, String ipAddress, String port) {
         setLayout(new BorderLayout());
 
+        // 채팅창 생성
         chatArea = new JTextArea();
-        chatArea.setEditable(false); // 채팅 내용 수정 불가하도록 처리
-        JScrollPane chatScrollPane = new JScrollPane(chatArea);
-        add(chatScrollPane, BorderLayout.CENTER);
+        chatArea.setEditable(false);
+        add(new JScrollPane(chatArea), BorderLayout.CENTER);
 
+        // 입력 필드 및 버튼
         JPanel inputPanel = new JPanel(new BorderLayout());
-        inputField = new JTextField(); // 메시지를 입력받는 텍스트 필드
+        inputField = new JTextField();
         sendButton = new JButton("Send");
-
         inputPanel.add(inputField, BorderLayout.CENTER);
         inputPanel.add(sendButton, BorderLayout.EAST);
         add(inputPanel, BorderLayout.SOUTH);
 
         try {
-            // 서버와 소켓 연결
-            socket = new Socket(ipAddress, Integer.parseInt(port));
+            // 서버와 연결
+            Socket socket = new Socket(ipAddress, Integer.parseInt(port));
             dis = new DataInputStream(socket.getInputStream());
             dos = new DataOutputStream(socket.getOutputStream());
+            dos.writeUTF(username); // 사용자 이름 서버로 전송
+            dos.flush();
 
-            // 서버로 사용자 이름 전송
-            dos.writeUTF(username);
+            // 서버 메시지 수신 스레드 시작
+            listenToServer();
 
-            // 서버로부터 메시지를 수신하는 스레드
-            new Thread(() -> {
-                try {
-                    while (true) {
-                        String message = dis.readUTF(); // 서버로부터 메시지 읽기
-                        chatArea.append(message + "\n"); // 채팅 영역에 메시지 표시
-                        chatArea.setCaretPosition(chatArea.getDocument().getLength()); // 스크롤 위치를 마지막으로 이동
-                    }
-                } catch (IOException e) {
-                    chatArea.append("Disconnected from server.\n"); // 연결 종료 메시지 표시
-                }
-            }).start();
+            // 메시지 전송 이벤트
+            sendButton.addActionListener(e -> sendMessage(inputField.getText().trim()));
+            inputField.addActionListener(e -> sendMessage(inputField.getText().trim()));
 
+            System.out.println("[DEBUG] 서버에 연결되었습니다: " + ipAddress + ":" + port);
         } catch (IOException e) {
-            e.printStackTrace();
+            System.err.println("[ERROR] 서버에 연결할 수 없습니다.");
+            JOptionPane.showMessageDialog(this, "Unable to connect to server", "Error", JOptionPane.ERROR_MESSAGE);
         }
-
-        // 메시지 전송 이벤트 처리
-        sendButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                sendMessage(inputField.getText().trim());  // inputField의 텍스트를 전달
-            }
-        });
-
-        inputField.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                sendMessage(inputField.getText().trim());  // inputField의 텍스트를 전달
-            }
-        });
     }
 
-    // 메시지를 서버로 전송
-    public void sendMessage(String message) {
-//        String message = inputField.getText().trim();
-        if (!message.isEmpty()) {
+    private void listenToServer() {
+        new Thread(() -> {
             try {
-                dos.writeUTF(message); // 서버로 메시지 전송
-                inputField.setText(""); // 입력 필드 초기화
+                String message;
+                while ((message = dis.readUTF()) != null) {
+                    System.out.println("[DEBUG] 서버로부터 수신된 메시지: " + message);
+
+                    if (gamePanel == null) {
+                        // gamePanel이 설정되지 않은 경우 큐에 메시지 저장
+                        messageQueue.add(message);
+                        System.err.println("[INFO] gamePanel이 설정되지 않아 메시지를 큐에 저장했습니다: " + message);
+                    } else {
+                        // gamePanel이 설정된 경우 메시지 처리
+                        processMessage(message);
+                    }
+                }
             } catch (IOException e) {
-                e.printStackTrace();
+                System.out.println("[DEBUG] 서버 연결이 종료되었습니다.");
+                chatArea.append("서버 연결이 종료되었습니다.\n");
             }
+        }).start();
+    }
+
+    public void sendMessage(String message) {
+        if (message.trim().isEmpty()) return; // 빈 메시지는 무시
+
+        try {
+            dos.writeUTF(message);
+            dos.flush();
+            inputField.setText(""); // 메시지 전송 후 입력 필드 초기화
+        } catch (IOException e) {
+            e.printStackTrace();
+            chatArea.append("메시지를 전송할 수 없습니다.\n");
+        }
+    }
+
+    public void setGamePanel(GamePanel gamePanel) {
+        this.gamePanel = gamePanel;
+        System.out.println("[DEBUG] GamePanel이 설정되었습니다.");
+
+        // 큐에 저장된 메시지 처리
+        while (!messageQueue.isEmpty()) {
+            String message = messageQueue.poll();
+            processMessage(message);
+        }
+    }
+
+    public DataOutputStream getOutputStream() {
+        return dos;
+    }
+
+    public void startListening() {
+        // 서버에서 데이터를 수신하기 시작
+        listenToServer();
+    }
+
+    private void processMessage(String message) {
+        if (message.startsWith("PLAYER_NUMBER:") || message.startsWith("PLAYER_COUNT:") ||
+                message.startsWith("GAME_START") || message.startsWith("ROUND_RESULT:") ||
+                message.startsWith("CARD_SELECTED:")) {
+            if (gamePanel != null) {
+                gamePanel.handleServerMessage(message);
+            } else {
+                System.err.println("[ERROR] gamePanel이 null입니다. 메시지를 처리할 수 없습니다: " + message);
+            }
+        } else {
+            chatArea.append(message + "\n");
         }
     }
 }
