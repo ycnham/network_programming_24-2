@@ -7,6 +7,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.Random;
 import java.util.Vector;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -17,7 +18,7 @@ public class ChatServer {
     private static final ConcurrentMap<String, Boolean> playerReadyMap = new ConcurrentHashMap<>(); // 플레이어 준비 상태
     private static final Object lock = new Object(); // 동기화를 위한 락
     private static int roundNumber = 1;
-
+    private static int currentPlayerIndex = 0; // 현재 턴의 플레이어 인덱스
     private static final int MAX_ROUNDS = 9;
 
     public static void main(String[] args) {
@@ -55,11 +56,14 @@ public class ChatServer {
     }
 
     private static void checkAllReady() {
-        System.out.println("Checking all ready. Current state: " + playerReadyMap);
-        if (playerReadyMap.size() == 2 && playerReadyMap.values().stream().allMatch(Boolean::booleanValue)) {
-            broadcast("GAME_START");
-        } else {
-            System.out.println("Not all players are ready.");
+        synchronized (userVec) {
+            if (playerReadyMap.size() == 2 && playerReadyMap.values().stream().allMatch(Boolean::booleanValue)) {
+                broadcast("GAME_START");
+                System.out.println("[INFO] 모든 플레이어 준비 완료. 게임을 시작합니다.");
+                startGame(); // 게임 시작 호출 추가
+            } else {
+                System.out.println("[INFO] 준비되지 않은 플레이어가 있습니다.");
+            }
         }
     }
 
@@ -73,6 +77,13 @@ public class ChatServer {
                 }
             }
         }
+    }
+
+    private static void switchTurn() {
+        currentPlayerIndex = (currentPlayerIndex + 1) % userVec.size();
+        String nextPlayer = "TURN:PLAYER" + (currentPlayerIndex + 1);
+        broadcast(nextPlayer);
+        System.out.println("[INFO] 다음 턴: " + nextPlayer);
     }
 
     static class UserService extends Thread {
@@ -176,12 +187,23 @@ public class ChatServer {
             try {
                 int cardNumber = Integer.parseInt(message.split(":")[1]);
                 synchronized (lock) {
-                    if (userVec.indexOf(this) == 0) {
+                    if (userVec.indexOf(this) != currentPlayerIndex) {
+                        try {
+                            sendMessage("NOT_YOUR_TURN");
+                        } catch (IOException e) {
+                            System.err.println("Failed to send NOT_YOUR_TURN message: " + e.getMessage());
+                        }
+                        return;
+                    }
+
+                    if (userVec.indexOf(this) == 0) { // Player 1
                         player1Card = new Card(cardNumber);
-                        broadcast("PLAYER1_CARD_SELECTED:" + cardNumber);
-                    } else {
+                        broadcast("PLAYER1_CARD_SELECTED:" + cardNumber); // 숫자를 전송
+                        broadcast("PLAYER2_CARD_VIEW:" + (player1Card.isBlack() ? "BLACK" : "WHITE")); // 상대방이 볼 이미지 전송
+                    } else { // Player 2
                         player2Card = new Card(cardNumber);
-                        broadcast("PLAYER2_CARD_SELECTED:" + cardNumber);
+                        broadcast("PLAYER2_CARD_SELECTED:" + cardNumber); // 숫자를 전송
+                        broadcast("PLAYER1_CARD_VIEW:" + (player2Card.isBlack() ? "BLACK" : "WHITE")); // 상대방이 볼 이미지 전송
                     }
 
                     // 양쪽 플레이어가 모두 카드를 선택한 경우 결과 처리
@@ -201,9 +223,11 @@ public class ChatServer {
             if (player1Card.getNumber() > player2Card.getNumber()) {
                 player1Score++;
                 result = "ROUND_RESULT:Player1_Wins";
+                currentPlayerIndex = 0; // Player1이 다음 라운드의 선플레이어
             } else if (player1Card.getNumber() < player2Card.getNumber()) {
                 player2Score++;
                 result = "ROUND_RESULT:Player2_Wins";
+                currentPlayerIndex = 1; // Player2가 다음 라운드의 선플레이어
             } else {
                 result = "ROUND_RESULT:Draw";
             }
@@ -216,7 +240,7 @@ public class ChatServer {
                 broadcast("GAME_OVER:" + player1Score + ":" + player2Score);
                 resetGame();
             } else {
-                broadcast("ROUND_END:" + roundNumber++);
+                switchTurn();
             }
         }
 
@@ -224,6 +248,7 @@ public class ChatServer {
             player1Score = 0;
             player2Score = 0;
             roundNumber = 1;
+            currentPlayerIndex = 0; // 턴 초기화
             broadcast("RESET_GAME");
         }
 
@@ -250,4 +275,14 @@ public class ChatServer {
             return username;
         }
     }
+
+    private static void startGame() {
+        synchronized (userVec) {
+            currentPlayerIndex = new Random().nextInt(userVec.size());
+            broadcast("GAME_START");
+            broadcast("TURN:PLAYER" + (currentPlayerIndex + 1)); // 선플레이어 알림
+            System.out.println("[INFO] 게임 시작. 첫 번째 턴: Player" + (currentPlayerIndex + 1));
+        }
+    }
+
 }

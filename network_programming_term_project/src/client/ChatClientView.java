@@ -131,6 +131,11 @@ public class ChatClientView extends JPanel {
             } else {
                 System.err.println("[ERROR] gamePanel이 null입니다. 메시지를 처리할 수 없습니다: " + message);
             }
+        } else if (message.startsWith("PLAYER1_CARD_VIEW:") || message.startsWith("PLAYER2_CARD_VIEW:")) {
+            if (gamePanel != null) {
+                String cardColor = message.split(":")[1];
+                gamePanel.showOpponentCard(cardColor); // 상대방 카드 흑백 이미지 표시
+            }
         } else {
             chatArea.append(message + "\n");
         }

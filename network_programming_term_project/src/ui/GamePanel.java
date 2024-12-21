@@ -20,7 +20,7 @@ public class GamePanel extends JPanel {
 	 */
 	private static final long serialVersionUID = 1L;
 	private final BlackAndWhiteGame game; // 게임 로직 관리 객체
-    private JLabel player1ScoreLabel;     // Player1 점수 라벨
+	private JLabel player1ScoreLabel;     // Player1 점수 라벨
 	private JLabel player2ScoreLabel;     // Player2 점수 라벨
 	private JLabel roundLabel;            // 라운드 번호 표시 라벨
 	private JLabel timerLabel;            // 타이머 표시 라벨
@@ -48,7 +48,11 @@ public class GamePanel extends JPanel {
 //	private int playerCount = 0;          // 현재 접속한 플레이어 수
 	
 	private final DataOutputStream dos;   // 서버와의 통신을 위한 출력 스트림
-	
+	private final Player player1;         // Player 1 정보
+	private final Player player2;         // Player 2 정보
+
+	private boolean isMyTurn = false; // 현재 턴이 내 차례인지 여부
+
 	/**
 	 * GamePanel 생성자: UI 초기화 및 게임 상태 관리 객체 생성
 	 * @param player1 첫 번째 플레이어 객체
@@ -59,6 +63,8 @@ public class GamePanel extends JPanel {
 		this.game = new BlackAndWhiteGame(player1, player2); // 게임 로직 객체 초기화
 	    this.dos = dos;
 	    cardLayout = new CardLayout();
+			this.player1 = player1;
+			this.player2 = player2;
 	    setLayout(cardLayout);
 	
 	    // 시작 화면 설정
@@ -81,51 +87,67 @@ public class GamePanel extends JPanel {
 	 */
 	public void handleServerMessage(String message) {
 		SwingUtilities.invokeLater(() -> {
-			System.out.println("[DEBUG] 서버로부터 메시지 수신: " + message);
 			try {
 				if (message.startsWith("PLAYER_NUMBER:")) {
-				isLeader = Integer.parseInt(message.split(":")[1]) == 1;
-				setLeader(isLeader);
+					isLeader = Integer.parseInt(message.split(":")[1]) == 1;
+					setLeader(isLeader);
 				} else if (message.startsWith("PLAYER_COUNT:")) {
-//					playerCount = Integer.parseInt(message.split(":")[1]);
-//					// 플레이어 수를 waitingLabel에 표시
-//	                waitingLabel.setText("현재 접속한 플레이어 수: " + playerCount);
 					waitingLabel.setText("게임 시작 대기중...");
 				} else if (message.equals("GAME_START")) {
 					startGame();
 				} else if (message.startsWith("PLAYER_READY:")) {
 					String playerName = message.split(":")[1];
 					waitingLabel.setText(playerName + " 준비 완료");
-				} else if (message.startsWith("ROUND_RESULT")) {
+				} else if (message.startsWith("CARD_SELECTED:")) {
+					int opponentCardNumber = Integer.parseInt(message.split(":")[1]);
+					Card opponentCard = new Card(opponentCardNumber);
+					player1CenterCard.setIcon(opponentCard.getCardImage(false)); // 상대방 카드 표시
+				} else if (message.startsWith("SHOW_OPPONENT_CARD:")) {
+					String cardColor = message.split(":")[1];
+					showOpponentCard(cardColor); // 상대방 카드의 뒷면 표시
+				} else if (message.equals("TURN_START")) {
+					String turnInfo = message.split(":")[1];
+					boolean isMyTurn = turnInfo.equals("SELF");
+
+					setTurn(isMyTurn);
+				} else if (message.equals("TURN_END")) {
+					setTurn(false); // 상대방 턴으로 전환
+				} else if (message.startsWith("TURN:PLAYER")) {
+					int playerIndex = Integer.parseInt(message.split(":")[1].replace("PLAYER", "")) - 1;
+					isMyTurn = (playerIndex == (isLeader ? 0 : 1)); // 내 턴 여부 업데이트
+					warningLabel.setText(isMyTurn ? "당신의 턴입니다!" : "상대방의 턴을 기다리세요...");
+				}	else if (message.startsWith("ROUND_RESULT:")) {
 					String[] parts = message.split(":");
 					int opponentCardNumber = Integer.parseInt(parts[1]);
 					String winner = parts[2];
 					int player1Score = Integer.parseInt(parts[3]);
 					int player2Score = Integer.parseInt(parts[4]);
-	
+
 					// 상대방 카드 표시
-					Card opponentCard = new Card(opponentCardNumber); // 카드 객체 생성
+					Card opponentCard = new Card(opponentCardNumber);
 					player1CenterCard.setIcon(opponentCard.getCardImage(true));
-	
+
 					// 점수 업데이트
 					game.getPlayer1().setPoints(player1Score);
 					game.getPlayer2().setPoints(player2Score);
 					updateScores();
-	
-					// 승리 메시지
-					if ("Player1".equals(winner)) {
-						JOptionPane.showMessageDialog(this, "Player 1 승리!", "결과", JOptionPane.INFORMATION_MESSAGE);
-					} else if ("Player2".equals(winner)) {
-						JOptionPane.showMessageDialog(this, "Player 2 승리!", "결과", JOptionPane.INFORMATION_MESSAGE);
+
+					// 승리 메시지 업데이트
+					if (player1.getName().equals(winner)) {
+						JOptionPane.showMessageDialog(this, player1.getName() + " 승리!", "결과", JOptionPane.INFORMATION_MESSAGE);
+					} else if (player2.getName().equals(winner)) {
+						JOptionPane.showMessageDialog(this, player2.getName() + " 승리!", "결과", JOptionPane.INFORMATION_MESSAGE);
 					} else {
 						JOptionPane.showMessageDialog(this, "무승부!", "결과", JOptionPane.INFORMATION_MESSAGE);
 					}
-					startRound(); // 다음 라운드 준비
+					startRound();
+				} else if (message.equals("GAME_OVER")) {
+					JOptionPane.showMessageDialog(this, "게임 종료!", "결과", JOptionPane.INFORMATION_MESSAGE);
 				}
 			} catch (Exception e) {
 				e.printStackTrace();
-	        }
-	    });
+			}
+		});
 	}
 
 	/**
@@ -204,7 +226,23 @@ public class GamePanel extends JPanel {
 			try {
 				System.out.println("[DEBUG] 게임 시작 화면으로 전환");
 				cardLayout.show(this, "GAME_SCREEN");
-			  
+
+				// 랜덤으로 선플레이어 결정
+				boolean isFirstTurn = new Random().nextBoolean();
+				isMyTurn = isFirstTurn; // 현재 플레이어가 선플레이어인지 설정
+
+				if (isMyTurn) {
+					setTurn(true); // 내 턴 설정 및 타이머 시작
+					warningLabel.setText("당신의 턴입니다!");
+				} else {
+					setTurn(false); // 상대방 턴으로 설정
+					warningLabel.setText("상대방의 턴을 기다리세요...");
+				}
+
+				// 서버로 선플레이어 정보를 전송
+				dos.writeUTF("TURN_START:" + (isMyTurn ? "SELF" : "OPPONENT"));
+				dos.flush();
+
 				// 카드 렌더링 및 라운드 시작
 				renderCards();
 				startRound();
@@ -223,7 +261,7 @@ public class GamePanel extends JPanel {
 
 	    // 상단 영역 (Player1 영역)
 	    JPanel topPanel = new JPanel(new BorderLayout());
-	    JLabel player1Label = new JLabel("Player 1", SwingConstants.LEFT); // Player1 구분
+			JLabel player1Label = new JLabel(player1.getName(), SwingConstants.LEFT); // Player1 이름
 	    player1Label.setFont(new Font("굴림", Font.BOLD, 16));
 	    player1Label.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 //	    JLabel player1SelectedCardLabel = new JLabel("선택된 카드: 없음", SwingConstants.CENTER);
@@ -249,7 +287,7 @@ public class GamePanel extends JPanel {
 
 	    // 하단 영역 (Player2 영역)
 	    JPanel bottomPanel = new JPanel(new BorderLayout());
-	    JLabel player2Label = new JLabel("Player 2", SwingConstants.LEFT);
+			JLabel player2Label = new JLabel(player2.getName(), SwingConstants.LEFT); // Player2 이름
 	    player2Label.setFont(new Font("굴림", Font.BOLD, 16));
 	    player2Label.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 //	    JLabel player2SelectedCardLabel = new JLabel("선택된 카드: 없음", SwingConstants.CENTER);
@@ -407,31 +445,34 @@ public class GamePanel extends JPanel {
 	 * 자동 제출: 타이머 종료 시 무작위 카드 제출
 	 */
 	private void autoSubmitCard() {
-	    if (selectedCard == null) {
-	        Random random = new Random();
-	        selectedCard = game.getPlayer2().getCards().get(random.nextInt(game.getPlayer2().getCards().size()));
-	    }
+		if (selectedCard == null) {
+			Random random = new Random();
+			selectedCard = game.getPlayer2().getCards().get(random.nextInt(game.getPlayer2().getCards().size()));
+		}
 
-	    // 선택된 카드 UI에 표시
-	    SwingUtilities.invokeLater(() -> player2CenterCard.setIcon(selectedCard.getCardImage(true)));
+		submitCard();
+		SwingUtilities.invokeLater(() -> player2CenterCard.setIcon(selectedCard.getCardImage(true)));
 
-	    // 서버에 카드 제출 신호 전송
-	    try {
-	        dos.writeUTF("CARD_SELECTED:" + selectedCard.getNumber());
-	        dos.flush();
-	    } catch (IOException e) {
-	        e.printStackTrace();
-	    }
+		try {
+			dos.writeUTF("CARD_SELECTED:" + selectedCard.getNumber());
+			dos.flush();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
 
-	    // 다음 라운드 시작
-	    JOptionPane.showMessageDialog(this, "시간 초과! 랜덤 카드가 제출됩니다.", "알림", JOptionPane.INFORMATION_MESSAGE);
-	    processRound(null);
+		JOptionPane.showMessageDialog(this, "시간 초과! 랜덤 카드가 제출됩니다.", "알림", JOptionPane.INFORMATION_MESSAGE);
+		startRound();
 	}
 	
 	/**
 	 * 카드 제출 시 동작
 	 */
 	private void submitCard() {
+		if (!isMyTurn) {
+			warningLabel.setText("당신의 턴이 아닙니다!");
+			return;
+		}
+
 		if (selectedCard == null) {
 			warningLabel.setText("카드를 선택해주세요!");
 			return;
@@ -442,12 +483,25 @@ public class GamePanel extends JPanel {
 			// 선택된 카드 정보를 서버로 전송
 			dos.writeUTF("CARD_SELECTED:" + selectedCard.getNumber());
 			dos.flush();
-	
-			// 선택된 카드 UI에 표시
+			submitButton.setEnabled(false);
+
+			// 자신의 화면에 선택된 카드의 앞면을 표시
 			player2CenterCard.setIcon(selectedCard.getCardImage(true));
+
+			// 선택한 카드 색상을 상대방에게 전송
+			String cardColor = selectedCard.isBlack() ? "BLACK" : "WHITE";
+			dos.writeUTF("SHOW_OPPONENT_CARD:" + cardColor);
+			dos.flush();
+
+			// 턴 종료 메시지 전송
+			dos.writeUTF("TURN_END");
+			dos.flush();
+
+			// 자신의 턴 종료
+			setTurn(false);
 		} catch (IOException e) {
 			e.printStackTrace();
-	    }
+		}
 	}
 
 	/**
@@ -498,5 +552,68 @@ public class GamePanel extends JPanel {
 	    // 다음 라운드 시작 준비
 	    startRound();
 	}
+
+	// 자신의 카드 앞면을 보여줌
+	public void showMyCard(int cardNumber) {
+		Card myCard = new Card(cardNumber);
+		player2CenterCard.setIcon(myCard.getCardImage(true)); // 자신의 카드 앞면
+		revalidate();
+		repaint();
+	}
+
+	// 상대방의 흑백 이미지를 보여줌
+	public void showOpponentCard(String cardColor) {
+		String imageName = cardColor.equals("BLACK") ? "Card-Black.png" : "Card-White.png";
+		java.net.URL imageUrl = getClass().getResource("/cards/" + imageName);
+		if (imageUrl != null) {
+			ImageIcon opponentCardImage = new ImageIcon(imageUrl);
+			Image resizedImage = opponentCardImage.getImage().getScaledInstance(80, 120, Image.SCALE_SMOOTH);
+			player1CenterCard.setIcon(new ImageIcon(resizedImage));
+		} else {
+			System.err.println("이미지를 불러올 수 없습니다: " + imageName);
+		}
+		revalidate();
+		repaint();
+	}
+
+	public void setTurn(boolean isMyTurn) {
+		this.isMyTurn = isMyTurn;
+		submitButton.setEnabled(isMyTurn);
+		if (isMyTurn) {
+			startTurnTimer(); // 내 턴이면 타이머 시작
+			warningLabel.setText("당신의 턴입니다!");
+		} else {
+			stopTurnTimer(); // 상대방 턴이면 타이머 정지
+			warningLabel.setText("상대방의 턴을 기다리세요...");
+		}
+	}
+
+	private Timer turnTimer; // 턴 타이머
+	private void startTurnTimer() {
+		timeLeft = 30; // 30초로 초기화
+		updateTimerLabel(); // 초기 타이머 UI 표시
+
+		if (turnTimer != null) {
+			turnTimer.stop(); // 기존 타이머 정지
+		}
+
+		turnTimer = new Timer(1000, e -> {
+			if (timeLeft > 0) {
+				timeLeft--; // 남은 시간 감소
+				updateTimerLabel();
+			} else {
+				turnTimer.stop(); // 시간이 끝나면 타이머 정지
+				autoSubmitCard(); // 시간 초과 시 자동으로 카드 제출
+			}
+		});
+		turnTimer.start();
+	}
+
+	private void stopTurnTimer() {
+		if (turnTimer != null) {
+			turnTimer.stop();
+		}
+	}
+
 }
 
