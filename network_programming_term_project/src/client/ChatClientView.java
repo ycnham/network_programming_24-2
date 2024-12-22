@@ -123,44 +123,93 @@ public class ChatClientView extends JPanel {
     }
 
     private void processMessage(String message) {
-        if (message.startsWith("TURN:PLAYER")) {
-            if (gamePanel != null) {
-                int playerIndex = Integer.parseInt(message.split(":")[1].replace("PLAYER", "")) - 1;
-                boolean isMyTurn = (playerIndex == (gamePanel.isLeader() ? 0 : 1)); // 선플레이어 여부 판단
-                gamePanel.setTurn(isMyTurn); // GamePanel에 턴 정보 전달
+        try {
+            if (message.equals("YOUR_TURN")) {
+                gamePanel.setTurn(true); // 내 턴으로 설정
+            } else if (message.equals("WAIT_FOR_OPPONENT")) {
+                gamePanel.setTurn(false); // 상대방 턴으로 설정
+            } else if (message.startsWith("TURN:PLAYER")) {
+                handleTurnMessage(message); // TURN 메시지 처리
+            } else if (message.startsWith("TURN_START:")) {
+                handleTurnStartMessage(message); // TURN_START 메시지 처리
+            } else if (message.startsWith("OPPONENT_NAME:")) {
+                handleOpponentNameMessage(message); // 상대방 이름 처리
+            } else if (message.startsWith("PLAYER_NUMBER:") || message.startsWith("PLAYER_COUNT:") ||
+                    message.startsWith("GAME_START") || message.startsWith("ROUND_RESULT:")) {
+                handleGeneralGameMessage(message); // 일반적인 게임 메시지 처리
+            } else if (message.startsWith("CARD_SELECTED:")) {
+                handleCardSelectedMessage(message); // 카드 선택 처리
+            } else if (message.startsWith("PLAYER1_CARD_VIEW:") || message.startsWith("PLAYER2_CARD_VIEW:")) {
+                handlePlayerCardViewMessage(message); // 카드 뷰 처리
             } else {
-                messageQueue.add(message); // gamePanel이 null이면 메시지를 큐에 저장
+                appendChatMessage(message); // 일반 채팅 메시지 처리
             }
-        } else if (message.startsWith("OPPONENT_NAME:")) {
-            String opponentName = message.split(":")[1];
-            if (gamePanel != null) {
-                gamePanel.setOpponentName(opponentName); // 상대방 이름 설정
-            } else {
-                messageQueue.add(message); // gamePanel이 null이면 메시지를 큐에 저장
-            }
-        } else if (message.startsWith("PLAYER_NUMBER:") || message.startsWith("PLAYER_COUNT:") ||
-                message.startsWith("GAME_START") || message.startsWith("ROUND_RESULT:")) {
-            if (gamePanel != null) {
-                gamePanel.handleServerMessage(message);
-            } else {
-                messageQueue.add(message); // gamePanel이 null이면 메시지를 큐에 저장
-            }
-        } else if (message.startsWith("CARD_SELECTED:")) {
-            int cardNumber = Integer.parseInt(message.split(":")[1]);
-            if (gamePanel != null) {
-                gamePanel.showOpponentCard(cardNumber); // 상대방 중앙에 카드 표시
-            } else {
-                messageQueue.add(message); // gamePanel이 null이면 메시지를 큐에 저장
-            }
-        } else if (message.startsWith("PLAYER1_CARD_VIEW:") || message.startsWith("PLAYER2_CARD_VIEW:")) {
-            if (gamePanel != null) {
-                String cardColor = message.split(":")[1];
-                gamePanel.showOpponentCard(cardColor); // 상대방 카드 흑백 이미지 표시
-            } else {
-                messageQueue.add(message); // gamePanel이 null이면 메시지를 큐에 저장
-            }
-        } else {
-            chatArea.append(message + "\n");
+        } catch (Exception e) {
+            System.err.println("[ERROR] 메시지 처리 중 예외 발생: " + message);
+            e.printStackTrace();
         }
     }
+
+    // TURN 메시지 처리
+    private void handleTurnMessage(String message) {
+        int playerIndex = Integer.parseInt(message.split(":")[1].replace("PLAYER", "")) - 1;
+        boolean isMyTurn = (playerIndex == (gamePanel.isLeader() ? 0 : 1)); // 선플레이어 여부 판단
+        gamePanel.setTurn(isMyTurn);
+    }
+
+    // TURN_START 메시지 처리
+    private void handleTurnStartMessage(String message) {
+        String turnPlayerName = message.split(":")[1];
+        boolean isMyTurn = turnPlayerName.equals(gamePanel.getPlayerName());
+        gamePanel.setTurn(isMyTurn);
+
+        if (isMyTurn) {
+            System.out.println("[INFO] 내 턴 시작: " + turnPlayerName);
+        } else {
+            System.out.println("[INFO] 상대방 턴 시작: " + turnPlayerName);
+        }
+    }
+
+    // 상대방 이름 메시지 처리
+    private void handleOpponentNameMessage(String message) {
+        String opponentName = message.split(":")[1];
+        gamePanel.setOpponentName(opponentName);
+    }
+
+    // 카드 선택 메시지 처리
+    private void handleCardSelectedMessage(String message) {
+        try {
+            if (message.startsWith("CARD_SELECTED:")) {
+                // 상대방이 선택한 카드의 숫자 처리
+                int cardNumber = Integer.parseInt(message.split(":")[1]);
+                gamePanel.showMyCard(cardNumber);
+            } else if (message.startsWith("SHOW_OPPONENT_CARD:")) {
+                // 상대방에게 보여줄 카드 색상 처리 (흑/백)
+                String cardColor = message.split(":")[1];
+                gamePanel.showOpponentCard(cardColor);
+            } else {
+                System.err.println("[ERROR] handleCardSelectedMessage: 알 수 없는 메시지 형식 - " + message);
+            }
+        } catch (Exception e) {
+            System.err.println("[ERROR] handleCardSelectedMessage: 메시지 처리 중 오류 발생 - " + message);
+            e.printStackTrace();
+        }
+    }
+
+    // 카드 뷰 메시지 처리
+    private void handlePlayerCardViewMessage(String message) {
+        String cardColor = message.split(":")[1];
+        gamePanel.showOpponentCard(cardColor);
+    }
+
+    // 일반적인 게임 메시지 처리
+    private void handleGeneralGameMessage(String message) {
+        gamePanel.handleServerMessage(message);
+    }
+
+    // 채팅 메시지 추가
+    private void appendChatMessage(String message) {
+        chatArea.append(message + "\n");
+    }
+
 }

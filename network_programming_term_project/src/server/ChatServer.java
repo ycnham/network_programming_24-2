@@ -91,10 +91,31 @@ public class ChatServer {
     }
 
     private static void switchTurn() {
-        currentPlayerIndex = (currentPlayerIndex + 1) % userVec.size();
-        String nextPlayer = "TURN:PLAYER" + (currentPlayerIndex + 1);
-        broadcast(nextPlayer);
-        System.out.println("[INFO] 다음 턴: " + nextPlayer);
+        synchronized (lock) {
+            if (userVec.size() < 2) {
+                System.err.println("[WARN] 턴을 전환할 수 없습니다. 충분한 플레이어가 없습니다.");
+                return;
+            }
+
+            currentPlayerIndex = (currentPlayerIndex + 1) % userVec.size(); // 턴 전환
+            UserService currentPlayer = userVec.get(currentPlayerIndex);
+
+            try {
+                // 현재 플레이어에게 턴 시작 메시지 전송
+                currentPlayer.sendMessage("TURN_START:" + currentPlayer.getUsername());
+
+                // 다른 플레이어에게 대기 메시지 전송
+                for (UserService user : userVec) {
+                    if (user != currentPlayer) {
+                        user.sendMessage("WAIT_FOR_OPPONENT");
+                    }
+                }
+
+                System.out.println("[INFO] 현재 턴: " + currentPlayer.getUsername());
+            } catch (IOException e) {
+                System.err.println("[ERROR] Failed to send turn-related messages: " + e.getMessage());
+            }
+        }
     }
 
     static class UserService extends Thread {
@@ -222,60 +243,89 @@ public class ChatServer {
             try {
                 int cardNumber = Integer.parseInt(message.split(":")[1]);
                 synchronized (lock) {
+                    // 현재 플레이어가 아닌 사용자가 카드 선택을 시도한 경우
                     if (userVec.indexOf(this) != currentPlayerIndex) {
-                        try {
-                            sendMessage("NOT_YOUR_TURN");
-                        } catch (IOException e) {
-                            System.err.println("Failed to send NOT_YOUR_TURN message: " + e.getMessage());
-                        }
+                        sendMessage("NOT_YOUR_TURN");
                         return;
                     }
 
+                    // 현재 플레이어의 카드 선택 처리
                     if (userVec.indexOf(this) == 0) { // Player 1
+                        if (player1Card != null) { // 이미 선택된 경우 방지
+                            sendMessage("ALREADY_SELECTED");
+                            return;
+                        }
                         player1Card = new Card(cardNumber);
-                        broadcast("PLAYER1_CARD_SELECTED:" + cardNumber); // 숫자를 전송
-                        broadcast("PLAYER2_CARD_VIEW:" + (player1Card.isBlack() ? "BLACK" : "WHITE")); // 상대방이 볼 이미지 전송
+                        broadcast("PLAYER1_CARD_SELECTED:" + cardNumber); // 카드 번호 전송
+                        broadcastToOpponent(this, "PLAYER2_CARD_VIEW:" + (player1Card.isBlack() ? "BLACK" : "WHITE")); // 상대방에게 뒷면 표시
+                        sendMessage("CARD_SELECTED_SUCCESS");
                     } else { // Player 2
+                        if (player2Card != null) { // 이미 선택된 경우 방지
+                            sendMessage("ALREADY_SELECTED");
+                            return;
+                        }
                         player2Card = new Card(cardNumber);
-                        broadcast("PLAYER2_CARD_SELECTED:" + cardNumber); // 숫자를 전송
-                        broadcast("PLAYER1_CARD_VIEW:" + (player2Card.isBlack() ? "BLACK" : "WHITE")); // 상대방이 볼 이미지 전송
+                        broadcast("PLAYER2_CARD_SELECTED:" + cardNumber); // 카드 번호 전송
+                        broadcastToOpponent(this, "PLAYER1_CARD_VIEW:" + (player2Card.isBlack() ? "BLACK" : "WHITE")); // 상대방에게 뒷면 표시
+                        sendMessage("CARD_SELECTED_SUCCESS");
                     }
 
-                    // 양쪽 플레이어가 모두 카드를 선택한 경우 결과 처리
+                    // 양 플레이어 모두 카드를 선택한 경우 결과 처리
                     if (player1Card != null && player2Card != null) {
                         determineRoundResult();
-                        player1Card = null;
-                        player2Card = null;
                     }
                 }
             } catch (NumberFormatException e) {
                 System.err.println("Invalid card number received: " + message);
+                try {
+                    sendMessage("INVALID_CARD_NUMBER");
+                } catch (IOException ioException) {
+                    System.err.println("Failed to send INVALID_CARD_NUMBER message: " + ioException.getMessage());
+                }
+            } catch (IOException e) {
+                System.err.println("Failed to send error message: " + e.getMessage());
+            }
+        }
+
+        private void broadcastToOpponent(UserService currentPlayer, String message) {
+            synchronized (userVec) {
+                for (UserService user : userVec) {
+                    // 현재 플레이어가 아닌 사용자에게만 메시지 전송
+                    if (user != currentPlayer) {
+                        try {
+                            user.sendMessage(message);
+                        } catch (IOException e) {
+                            System.err.println("[ERROR] Failed to send message to opponent: " + e.getMessage());
+                        }
+                    }
+                }
             }
         }
 
         private void determineRoundResult() {
-            String result;
+            String resultMessage;
             if (player1Card.getNumber() > player2Card.getNumber()) {
                 player1Score++;
-                result = "ROUND_RESULT:Player1_Wins";
-                currentPlayerIndex = 0; // Player1이 다음 라운드의 선플레이어
+                resultMessage = "ROUND_RESULT:Player1_Wins";
+                currentPlayerIndex = 0; // Player 1이 다음 턴 시작
             } else if (player1Card.getNumber() < player2Card.getNumber()) {
                 player2Score++;
-                result = "ROUND_RESULT:Player2_Wins";
-                currentPlayerIndex = 1; // Player2가 다음 라운드의 선플레이어
+                resultMessage = "ROUND_RESULT:Player2_Wins";
+                currentPlayerIndex = 1; // Player 2가 다음 턴 시작
             } else {
-                result = "ROUND_RESULT:Draw";
+                resultMessage = "ROUND_RESULT:Draw";
             }
 
             // 결과 및 점수 브로드캐스트
-            broadcast(result + ":" + player1Score + ":" + player2Score);
-            broadcast("ROUND_END:" + roundNumber++);
+            broadcast(resultMessage + ":" + player1Score + ":" + player2Score);
 
-            if (roundNumber > MAX_ROUNDS) {
+            // 게임 종료 조건 확인
+            if (roundNumber >= MAX_ROUNDS) {
                 broadcast("GAME_OVER:" + player1Score + ":" + player2Score);
                 resetGame();
             } else {
-                switchTurn();
+                roundNumber++;
+                switchTurn(); // 다음 턴으로 전환
             }
         }
 
@@ -313,10 +363,26 @@ public class ChatServer {
 
     private static void startGame() {
         synchronized (userVec) {
-            currentPlayerIndex = new Random().nextInt(userVec.size());
+            currentPlayerIndex = new Random().nextInt(userVec.size()); // 첫 번째 플레이어 랜덤 설정
+            UserService currentPlayer = userVec.get(currentPlayerIndex);
+
             broadcast("GAME_START");
-            broadcast("TURN:PLAYER" + (currentPlayerIndex + 1)); // 선플레이어 알림
-            System.out.println("[INFO] 게임 시작. 첫 번째 턴: Player" + (currentPlayerIndex + 1));
+
+            try {
+                // 첫 번째 플레이어에게 턴 시작 메시지
+                currentPlayer.sendMessage("YOUR_TURN");
+
+                // 다른 플레이어에게 대기 메시지
+                for (UserService user : userVec) {
+                    if (user != currentPlayer) {
+                        user.sendMessage("WAIT_FOR_OPPONENT");
+                    }
+                }
+
+                System.out.println("[INFO] 게임 시작. 첫 번째 턴: Player" + (currentPlayerIndex + 1));
+            } catch (IOException e) {
+                System.err.println("[ERROR] Failed to send turn-related messages: " + e.getMessage());
+            }
         }
     }
 
