@@ -53,6 +53,14 @@ public class GamePanel extends JPanel {
 
 	private boolean isMyTurn = false; // 현재 턴이 내 차례인지 여부
 
+	private JLabel player1Label; // 상대방 이름 라벨
+	private JLabel player2Label; // 내 이름 라벨
+
+	private JPanel rightPanel; // 오른쪽 UI를 위한 패널
+
+	private boolean isCardSubmitted = false;
+
+
 	/**
 	 * GamePanel 생성자: UI 초기화 및 게임 상태 관리 객체 생성
 	 * @param player1 첫 번째 플레이어 객체
@@ -60,38 +68,50 @@ public class GamePanel extends JPanel {
 	 * @param dos 서버와 통신하기 위한 DataOutputStream
 	 */
 	public GamePanel(Player player1, Player player2, DataOutputStream dos) {
-		this.game = new BlackAndWhiteGame(player1, player2); // 게임 로직 객체 초기화
-	    this.dos = dos;
-	    cardLayout = new CardLayout();
-			this.player1 = player1;
-			this.player2 = player2;
-	    setLayout(cardLayout);
-	
-	    // 시작 화면 설정
-	    startScreen = new JPanel(new BorderLayout());
-	    waitingLabel = new JLabel("서버 메시지 대기중...", SwingConstants.CENTER);
-	    waitingLabel.setFont(new Font("굴림", Font.BOLD, 20));
-	    startScreen.add(waitingLabel, BorderLayout.CENTER); // 기본 메시지 추가
-	    add(startScreen, "START_SCREEN");  // 초기에는 이 화면이 보임
-	
-	    // 게임 화면 설정
-	    gameScreen = new JPanel(new BorderLayout());
-	    setupGameScreen();
-	    add(gameScreen, "GAME_SCREEN");
-	
-	    setupReadyButton();
-	    
-	    // 버튼 기본 활성화
-	    submitButton.setEnabled(true);
-    }
-	
+		this.game = new BlackAndWhiteGame(player1, player2);
+		this.dos = dos;
+		cardLayout = new CardLayout();
+		this.player1 = player1;
+		this.player2 = player2;
+		setLayout(cardLayout);
+
+		// 시작 화면 설정
+		startScreen = new JPanel(new BorderLayout());
+		waitingLabel = new JLabel("서버 메시지 대기중...", SwingConstants.CENTER);
+		waitingLabel.setFont(new Font("굴림", Font.BOLD, 20));
+		startScreen.add(waitingLabel, BorderLayout.CENTER);
+		add(startScreen, "START_SCREEN");
+
+		// 게임 화면 설정
+		gameScreen = new JPanel(new BorderLayout());
+		setupGameScreen();
+		add(gameScreen, "GAME_SCREEN");
+
+		// `submitButton`은 `setupGameScreen`에서 초기화되므로 이후 호출
+		if (submitButton != null) {
+			submitButton.setEnabled(false);
+		} else {
+			System.err.println("[ERROR] submitButton이 초기화되지 않았습니다.");
+		}
+
+		setupReadyButton();
+	}
+
 	/**
 	 * 서버 메시지 처리: 리더 여부 및 게임 시작 메시지 처리
 	 */
 	public void handleServerMessage(String message) {
 		SwingUtilities.invokeLater(() -> {
 			try {
-				if (message.startsWith("PLAYER_NUMBER:")) {
+				if (message.startsWith("OPPONENT_NAME:")) {
+					// 상대방 이름 업데이트
+					String opponentName = message.split(":")[1];
+					setOpponentName(opponentName);
+				} else if (message.startsWith("PLAYER_NAME:")) {
+					// 본인 이름 업데이트
+					String playerName = message.split(":")[1];
+					setPlayerName(playerName);
+				} else if (message.startsWith("PLAYER_NUMBER:")) {
 					isLeader = Integer.parseInt(message.split(":")[1]) == 1;
 					setLeader(isLeader);
 				} else if (message.startsWith("PLAYER_COUNT:")) {
@@ -117,8 +137,10 @@ public class GamePanel extends JPanel {
 					setTurn(false); // 상대방 턴으로 전환
 				} else if (message.startsWith("TURN:PLAYER")) {
 					int playerIndex = Integer.parseInt(message.split(":")[1].replace("PLAYER", "")) - 1;
-					isMyTurn = (playerIndex == (isLeader ? 0 : 1)); // 내 턴 여부 업데이트
-					warningLabel.setText(isMyTurn ? "당신의 턴입니다!" : "상대방의 턴을 기다리세요...");
+					System.out.println("[DEBUG] TURN:PLAYER 메시지 수신 - PlayerIndex: " + playerIndex);
+					isMyTurn = (playerIndex == (isLeader ? 0 : 1));
+					System.out.println("[DEBUG] isMyTurn: " + isMyTurn);
+					setTurn(isMyTurn);
 				}	else if (message.startsWith("ROUND_RESULT:")) {
 					String[] parts = message.split(":");
 					int opponentCardNumber = Integer.parseInt(parts[1]);
@@ -259,153 +281,78 @@ public class GamePanel extends JPanel {
 	 * 게임 화면 UI 초기화
 	 */
 	private void setupGameScreen() {
-	    // 화면을 세로로 나눔
-	    JPanel mainPanel = new JPanel(new GridLayout(2, 1));
+		// 메인 패널
+		JPanel mainPanel = new JPanel(new BorderLayout());
 
-	    // 상단 영역 (Player1 영역)
-	    JPanel topPanel = new JPanel(new BorderLayout());
-			JLabel player1Label = new JLabel(player1.getName(), SwingConstants.LEFT); // Player1 이름
-	    player1Label.setFont(new Font("굴림", Font.BOLD, 16));
-	    player1Label.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-	    topPanel.add(player1Label, BorderLayout.NORTH);
-//	    JLabel player1SelectedCardLabel = new JLabel("선택된 카드: 없음", SwingConstants.CENTER);
-//	    player1SelectedCardLabel.setFont(new Font("굴림", Font.BOLD, 16));
+		// 왼쪽에 라운드와 스코어 배치
+		JPanel leftPanel = new JPanel(new GridLayout(3, 1, 0, 10));
+		player1ScoreLabel = new JLabel("0", SwingConstants.CENTER);
+		player1ScoreLabel.setFont(new Font("굴림", Font.BOLD, 20));
 
-	    // Player1 선택된 카드 표시
-	    JLabel player1SelectedCard = new JLabel("", SwingConstants.CENTER);
-	    player1SelectedCard.setOpaque(true);
-	    player1SelectedCard.setPreferredSize(new Dimension(95, 133)); // 63:88 비율
-	    player1SelectedCard.setHorizontalAlignment(SwingConstants.CENTER);
-	    player1SelectedCard.setVerticalAlignment(SwingConstants.CENTER);
-	    
-	    // Player1 카드 리스트 영역 (스크롤 추가)
-//	    JPanel player1CardRow = new JPanel(new FlowLayout(FlowLayout.CENTER));
-	    JPanel player1CardRow = new JPanel(new GridLayout(1, 9, 5, 5)); // 카드 간격 추가
-	    JScrollPane player1ScrollPane = new JScrollPane(player1CardRow, JScrollPane.VERTICAL_SCROLLBAR_NEVER, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-	    player1ScrollPane.setPreferredSize(new Dimension(950, 150)); // 스크롤 패널 크기 설정
-	    for (Card card : game.getPlayer1().getCards()) {
-	        JLabel cardBack = new JLabel(card.getCardImage(false)); // 뒷면
-	        cardBack.setPreferredSize(new Dimension(70, 98)); // 카드 크기 조정 (비율 유지)
-	        player1CardRow.add(cardBack);
-	    }
-	    topPanel.add(player1ScrollPane, BorderLayout.CENTER);
-//	    for (int i = 0; i < game.getPlayer1().getCards().size(); i++) {
-//	        JLabel cardBack = new JLabel(game.getPlayer1().getCards().get(i).getCardImage(false)); // 뒷면
-//	        cardBack.setPreferredSize(new Dimension(95, 133)); // 63:88 비율
-//	        player1CardRow.add(cardBack);
-//	    }
-	    topPanel.add(player1Label, BorderLayout.WEST); // Player1 레이블 추가
-	    topPanel.add(player1CardRow, BorderLayout.NORTH);
-	    topPanel.add(player1SelectedCard, BorderLayout.CENTER); // 선택한 카드 표시
+		roundLabel = new JLabel("1R", SwingConstants.CENTER);
+		roundLabel.setFont(new Font("굴림", Font.BOLD, 24));
 
-	    // 하단 영역 (Player2 영역)
-	    JPanel bottomPanel = new JPanel(new BorderLayout());
-			JLabel player2Label = new JLabel(player2.getName(), SwingConstants.LEFT); // Player2 이름
-	    player2Label.setFont(new Font("굴림", Font.BOLD, 16));
-	    player2Label.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-	    bottomPanel.add(player2Label, BorderLayout.NORTH);
-//	    JLabel player2SelectedCardLabel = new JLabel("선택된 카드: 없음", SwingConstants.CENTER);
-//	    player2SelectedCardLabel.setFont(new Font("굴림", Font.BOLD, 16));
+		player2ScoreLabel = new JLabel("0", SwingConstants.CENTER);
+		player2ScoreLabel.setFont(new Font("굴림", Font.BOLD, 20));
 
-	    // Player2 카드 전체 패널
-	    JPanel player2CardPanel = new JPanel();
-	    player2CardPanel.setLayout(new BoxLayout(player2CardPanel, BoxLayout.Y_AXIS)); // "선택된 카드" 섹션과 카드 리스트를 수직으로 배치
-	    
-	    // Player2 선택된 카드 표시
-	    JPanel player2SelectedCardPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
-	    JLabel player2SelectedCard = new JLabel("선택된 카드 없음", SwingConstants.CENTER);
-	    player2SelectedCard.setOpaque(true);
-	    player2SelectedCard.setPreferredSize(new Dimension(95, 133)); // 63:88 비율
-	    player2SelectedCard.setHorizontalAlignment(SwingConstants.CENTER);
-	    player2SelectedCard.setVerticalAlignment(SwingConstants.CENTER);
-	    player2SelectedCardPanel.add(player2SelectedCard); // 패널에 추가
-	    
-	    // Player2 카드 리스트 영역 (스크롤 추가)
-//	    JPanel player2CardRow = new JPanel(new FlowLayout(FlowLayout.CENTER));
-	    JPanel player2CardRow = new JPanel(new GridLayout(1, 9, 5, 5)); // 카드 간격 추가
-	    JScrollPane player2ScrollPane = new JScrollPane(player2CardRow, JScrollPane.VERTICAL_SCROLLBAR_NEVER, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-	    player2ScrollPane.setPreferredSize(new Dimension(950, 150)); // 스크롤 패널 크기 설정
-	    for (Card card : game.getPlayer2().getCards()) {
-	        JButton cardButton = new JButton(card.getCardImage(true)); // 앞면
-	        cardButton.setPreferredSize(new Dimension(70, 98)); // 카드 크기 조정 (비율 유지)
-	        cardButton.addActionListener(e -> {
-	            selectedCard = card;
-	            player2CenterCard.setIcon(card.getCardImage(true)); // 본인 선택된 카드 앞면 표시
-	        });
-	        player2CardRow.add(cardButton);
-	    }
-	    bottomPanel.add(player2ScrollPane, BorderLayout.CENTER);
-//	    for (Card card : game.getPlayer2().getCards()) {
-//	        JButton cardButton = new JButton(card.getCardImage(true)); // 앞면
-//	        cardButton.setPreferredSize(new Dimension(95, 133)); // 63:88 비율
-//	        cardButton.addActionListener(e -> {
-//	            selectedCard = card;
-//	            
-//	            player2SelectedCard.setIcon(card.getCardImage(true)); // 본인 선택된 카드 앞면 표시
-//	            player2SelectedCardPanel.revalidate(); // UI 갱신
-//	            player2SelectedCardPanel.repaint();
-//	            
-//	            // 지금은 채팅창에 표시되긴 하는데, 채팅창에 나오면 안되므로 나중에 지워야 함 (try catch 문)
-//	            try {
-//	                // 상대방에게는 뒷면으로 보이도록 전송
-//	                dos.writeUTF("SELECTED_CARD:" + card.getNumber());
-//	                dos.flush();
-//	            } catch (IOException ex) {
-//	                ex.printStackTrace();
-//	            }
-//	        });
-//	        player2CardRow.add(cardButton);
-//	    }
-	    
-	    // Player2 전체 패널에 선택된 카드 섹션과 카드 리스트 섹션 추가
-	    player2CardPanel.add(player2SelectedCardPanel); // 선택된 카드 섹션 추가
-	    player2CardPanel.add(player2CardRow);          // 카드 리스트 섹션 추가
-	    
-	    bottomPanel.add(player2Label, BorderLayout.WEST); // Player2 레이블 추가
-	    bottomPanel.add(player2CardPanel, BorderLayout.CENTER); // Player2 전체 패널 추가
-	    bottomPanel.add(player2SelectedCard, BorderLayout.CENTER); // 선택한 카드 표시
-	    bottomPanel.add(player2CardRow, BorderLayout.SOUTH); // 카드 버튼 추가
+		leftPanel.add(player1ScoreLabel);
+		leftPanel.add(roundLabel);
+		leftPanel.add(player2ScoreLabel);
 
-//	    // 중앙에 타이머 추가
-//	    timerLabel = new JLabel("남은 시간: 30초", SwingConstants.CENTER);
-//	    timerLabel.setFont(new Font("굴림", Font.BOLD, 20));
-//	    timerLabel.setForeground(Color.RED);
-//	    topPanel.add(timerLabel, BorderLayout.SOUTH);
+		// 상단 영역 (Player1 영역)
+		JPanel topPanel = new JPanel(new BorderLayout());
+		JPanel player1Wrapper = new JPanel(new FlowLayout(FlowLayout.CENTER, 50, 10));
+		player1Label = new JLabel("상대방", SwingConstants.LEFT);
+		player1Label.setFont(new Font("굴림", Font.BOLD, 16));
+		player1Wrapper.add(player1Label);
 
-	    // 메인 패널을 게임 화면에 추가
-	    gameScreen.add(mainPanel, BorderLayout.CENTER);
+		JPanel player1CardRow = new JPanel(new GridLayout(1, 9, 10, 0));
+		for (Card card : game.getPlayer1().getCards()) {
+			JLabel cardBack = new JLabel(card.getCardImage(false));
+			cardBack.setPreferredSize(new Dimension(70, 98));
+			player1CardRow.add(cardBack);
+		}
+		player1Wrapper.add(player1CardRow);
+		topPanel.add(player1Wrapper, BorderLayout.CENTER);
 
-	    // 카드 제출 버튼 (화면 오른쪽 세로 정중앙)
-	    JPanel rightPanel = new JPanel(new BorderLayout());
-	    submitButton = new JButton("카드 제출");
-	    submitButton.setFont(new Font("굴림", Font.BOLD, 16));
-	    submitButton.addActionListener(e -> submitCard()); // 카드 제출 동작
-//	    rightPanel.add(submitButton, BorderLayout.CENTER);
-//	    gameScreen.add(rightPanel, BorderLayout.EAST);
+		// 하단 영역 (Player2 영역)
+		JPanel bottomPanel = new JPanel(new BorderLayout());
+		JPanel player2Wrapper = new JPanel(new FlowLayout(FlowLayout.CENTER, 50, 10));
+		player2Label = new JLabel("나", SwingConstants.LEFT);
+		player2Label.setFont(new Font("굴림", Font.BOLD, 16));
+		player2Wrapper.add(player2Label);
 
-	    // 타이머 라벨
-	    timerLabel = new JLabel("남은 시간: 30초", SwingConstants.CENTER);
-	    timerLabel.setFont(new Font("굴림", Font.BOLD, 20));
-	    timerLabel.setForeground(Color.RED);
+		JPanel player2CardRow = new JPanel(new GridLayout(1, 9, 10, 0));
+		for (Card card : game.getPlayer2().getCards()) {
+			JButton cardButton = new JButton(card.getCardImage(true));
+			cardButton.setPreferredSize(new Dimension(70, 98));
+			cardButton.addActionListener(e -> {
+				selectedCard = card;
+				player2CenterCard.setIcon(card.getCardImage(true));
+			});
+			player2CardRow.add(cardButton);
+		}
+		player2Wrapper.add(player2CardRow);
+		bottomPanel.add(player2Wrapper, BorderLayout.CENTER);
 
-	    // 카드 제출 버튼의 왼쪽에 타이머 배치
-	    rightPanel.add(timerLabel, BorderLayout.WEST);
-	    rightPanel.add(submitButton, BorderLayout.CENTER);
-	    
-	    // 상단과 하단 패널을 메인 패널에 추가
-	    mainPanel.add(topPanel);
-	    mainPanel.add(bottomPanel);
-	    
-	    // 게임 화면에 추가
-	    gameScreen.add(mainPanel, BorderLayout.CENTER);
-	    gameScreen.add(rightPanel, BorderLayout.EAST); // 오른쪽 영역 추가
-	    
-	    // UI 갱신
-	    gameScreen.revalidate();
-	    gameScreen.repaint();
+		// 오른쪽 패널 (rightPanel) 초기화
+		rightPanel = new JPanel(new GridBagLayout());
+		setTurn(isMyTurn); // 초기 설정
+
+		// 메인 패널 구성
+		mainPanel.add(leftPanel, BorderLayout.WEST);
+		mainPanel.add(topPanel, BorderLayout.NORTH);
+		mainPanel.add(bottomPanel, BorderLayout.SOUTH);
+		mainPanel.add(rightPanel, BorderLayout.EAST);
+
+		// 게임 화면에 추가
+		gameScreen.add(mainPanel, BorderLayout.CENTER);
+
+		// UI 갱신
+		gameScreen.revalidate();
+		gameScreen.repaint();
 	}
 
-	
 	/**
 	 * 카드 렌더링
 	 */
@@ -472,6 +419,9 @@ public class GamePanel extends JPanel {
 	 * 자동 제출: 타이머 종료 시 무작위 카드 제출
 	 */
 	private void autoSubmitCard() {
+		if (isCardSubmitted) return; // 중복 호출 방지
+		isCardSubmitted = true;
+
 		if (selectedCard == null) {
 			Random random = new Random();
 			selectedCard = game.getPlayer2().getCards().get(random.nextInt(game.getPlayer2().getCards().size()));
@@ -504,31 +454,54 @@ public class GamePanel extends JPanel {
 			warningLabel.setText("카드를 선택해주세요!");
 			return;
 		}
-		warningLabel.setText(""); // 경고 메시지 초기화
+
+		if (isCardSubmitted) {
+			warningLabel.setText("이미 카드를 제출했습니다!");
+			return;
+		}
+		isCardSubmitted = true; // 제출 상태 업데이트
 
 		try {
-			// 선택된 카드 정보를 서버로 전송
+			// 선택된 카드를 서버로 전송
 			dos.writeUTF("CARD_SELECTED:" + selectedCard.getNumber());
 			dos.flush();
-//			submitButton.setEnabled(false);
 
-			// 자신의 화면에 선택된 카드의 앞면을 표시
+			// 중앙에 선택된 카드 표시
 			player2CenterCard.setIcon(selectedCard.getCardImage(true));
 
-			// 선택한 카드 색상을 상대방에게 전송
-			String cardColor = selectedCard.isBlack() ? "BLACK" : "WHITE";
-			dos.writeUTF("SHOW_OPPONENT_CARD:" + cardColor);
-			dos.flush();
+			// 카드 배열에서 제거
+			game.getPlayer2().getCards().remove(selectedCard);
+			selectedCard = null;
+
+			// UI 갱신
+			renderPlayerCards(); // 플레이어 카드 재렌더링
 
 			// 턴 종료 메시지 전송
 			dos.writeUTF("TURN_END");
 			dos.flush();
 
-			// 자신의 턴 종료
-			setTurn(false);
+			setTurn(false); // 턴 종료
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
+	}
+
+	private void renderPlayerCards() {
+		player2CardsPanel.removeAll(); // 기존 카드 삭제
+
+		// 플레이어 카드 재생성
+		for (Card card : game.getPlayer2().getCards()) {
+			JButton cardButton = new JButton(card.getCardImage(true));
+			cardButton.setPreferredSize(new Dimension(70, 98));
+			cardButton.addActionListener(e -> {
+				selectedCard = card;
+				player2CenterCard.setIcon(card.getCardImage(true)); // 중앙 카드 갱신
+			});
+			player2CardsPanel.add(cardButton);
+		}
+
+		player2CardsPanel.revalidate();
+		player2CardsPanel.repaint();
 	}
 
 	/**
@@ -605,16 +578,54 @@ public class GamePanel extends JPanel {
 
 	public void setTurn(boolean isMyTurn) {
 		this.isMyTurn = isMyTurn;
+
 		SwingUtilities.invokeLater(() -> {
-			submitButton.setEnabled(isMyTurn); // 내 턴일 때만 버튼 활성화
-			if (isMyTurn) {
-				startTurnTimer(); // 내 턴이면 타이머 시작
-		            warningLabel.setText("당신의 턴입니다!");
-            } else {
-            	stopTurnTimer(); // 상대방 턴이면 타이머 정지
-            	warningLabel.setText("상대방의 턴을 기다리세요...");
-	        }
-	    });
+			if (rightPanel != null) {
+				rightPanel.removeAll(); // 기존 컴포넌트 제거
+
+				GridBagConstraints gbc = new GridBagConstraints();
+				gbc.gridx = 0;
+				gbc.gridy = 0;
+				gbc.insets = new Insets(10, 0, 10, 0);
+
+				if (isMyTurn) {
+					// 타이머 라벨 추가
+					if (timerLabel == null) {
+						timerLabel = new JLabel("남은 시간: 30초", SwingConstants.CENTER);
+						timerLabel.setFont(new Font("굴림", Font.BOLD, 20));
+						timerLabel.setForeground(Color.RED);
+					}
+					timerLabel.setText("남은 시간: " + timeLeft + "초");
+					rightPanel.add(timerLabel, gbc);
+
+					// 카드 제출 버튼 추가
+					if (submitButton == null) {
+						submitButton = new JButton("카드 제출");
+						submitButton.setFont(new Font("굴림", Font.BOLD, 16));
+						submitButton.setPreferredSize(new Dimension(150, 40));
+						submitButton.addActionListener(e -> submitCard());
+					}
+					submitButton.setEnabled(true);
+					gbc.gridy = 1;
+					rightPanel.add(submitButton, gbc);
+
+					startTurnTimer(); // 타이머 시작
+				} else {
+					// "턴 기다리는 중" 라벨 표시
+					JLabel waitingLabel = new JLabel("턴 기다리는 중", SwingConstants.CENTER);
+					waitingLabel.setFont(new Font("굴림", Font.BOLD, 20));
+					waitingLabel.setForeground(Color.GRAY);
+					rightPanel.add(waitingLabel, gbc);
+
+					stopTurnTimer(); // 타이머 정지
+				}
+
+				rightPanel.revalidate();
+				rightPanel.repaint();
+			} else {
+				System.err.println("[ERROR] rightPanel이 초기화되지 않았습니다.");
+			}
+		});
 	}
 
 	private Timer turnTimer; // 턴 타이머
@@ -642,6 +653,29 @@ public class GamePanel extends JPanel {
 		if (turnTimer != null) {
 			turnTimer.stop();
 		}
+	}
+
+	public void setOpponentName(String opponentName) {
+		SwingUtilities.invokeLater(() -> {
+			player1Label.setText(opponentName); // 상대방 이름 업데이트
+		});
+	}
+
+	public void setPlayerName(String playerName) {
+		SwingUtilities.invokeLater(() -> {
+			player2Label.setText(playerName); // 내 이름 업데이트
+		});
+	}
+
+	public boolean isLeader() {
+		return isLeader;
+	}
+
+	public void showOpponentCard(int cardNumber) {
+		Card opponentCard = new Card(cardNumber);
+		player1CenterCard.setIcon(opponentCard.getCardImage(true)); // 상대방 중앙 카드 업데이트
+		revalidate();
+		repaint();
 	}
 
 }

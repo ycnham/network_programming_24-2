@@ -79,6 +79,17 @@ public class ChatServer {
         }
     }
 
+    // 특정 사용자에게만 메시지 전송
+    private static void sendToUser(UserService targetUser, String message) {
+        synchronized (userVec) {
+            try {
+                targetUser.sendMessage(message);
+            } catch (IOException e) {
+                System.err.println("Failed to send message to " + targetUser.getUsername());
+            }
+        }
+    }
+
     private static void switchTurn() {
         currentPlayerIndex = (currentPlayerIndex + 1) % userVec.size();
         String nextPlayer = "TURN:PLAYER" + (currentPlayerIndex + 1);
@@ -116,15 +127,39 @@ public class ChatServer {
                 System.out.println(username + " connected.");
 
                 synchronized (userVec) {
+                    userVec.add(this);
+
+                    // 기존 사용자에게 새 사용자의 이름 알림
+                    for (UserService user : userVec) {
+                        if (user != this) {
+                            user.sendMessage("OPPONENT_NAME:" + username);
+                        }
+                    }
+
+                    // 새 사용자에게 기존 사용자의 이름 알림
+                    if (userVec.size() > 1) {
+                        for (UserService user : userVec) {
+                            if (user != this) {
+                                sendMessage("OPPONENT_NAME:" + user.username);
+                                break;
+                            }
+                        }
+                    }
+
+                    // 사용자 번호 및 상태 브로드캐스트
                     int playerNumber = userVec.indexOf(this) + 1;
-                    sendMessage("PLAYER_NUMBER:" + playerNumber); // 클라이언트에게 플레이어 번호 전달
-                    broadcast(username + " has joined as Player " + playerNumber); // 다른 사용자들에게 알림
+                    sendMessage("PLAYER_NUMBER:" + playerNumber);
+                    broadcast(username + " has joined as Player " + playerNumber);
                 }
 
                 String message;
                 while ((message = dis.readUTF()) != null) {
                     System.out.println("[DEBUG] 수신된 메시지: " + message); // 메시지 로그 출력
-                    if (message.startsWith("CARD_SELECTED:")) {
+                    if (message.equals("TURN_END")) {
+                        // 턴 전환하기
+                        System.out.println("[DEBUG] TURN_END 메시지 수신. 턴 전환 중...");
+                        switchTurn();
+                    } else if (message.startsWith("CARD_SELECTED:")) {
                         // 카드 선택 처리
                         handleCardSelection(message);
                     } else if (message.equals("READY")) {

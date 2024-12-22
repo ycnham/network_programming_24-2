@@ -105,7 +105,7 @@ public class ChatClientView extends JPanel {
         // 큐에 저장된 메시지 처리
         while (!messageQueue.isEmpty()) {
             String message = messageQueue.poll();
-            processMessage(message);
+            processMessage(message); // 큐에서 꺼낸 메시지 처리
         }
     }
 
@@ -123,18 +123,41 @@ public class ChatClientView extends JPanel {
     }
 
     private void processMessage(String message) {
-        if (message.startsWith("PLAYER_NUMBER:") || message.startsWith("PLAYER_COUNT:") ||
-                message.startsWith("GAME_START") || message.startsWith("ROUND_RESULT:") ||
-                message.startsWith("CARD_SELECTED:")) {
+        if (message.startsWith("TURN:PLAYER")) {
+            if (gamePanel != null) {
+                int playerIndex = Integer.parseInt(message.split(":")[1].replace("PLAYER", "")) - 1;
+                boolean isMyTurn = (playerIndex == (gamePanel.isLeader() ? 0 : 1)); // 선플레이어 여부 판단
+                gamePanel.setTurn(isMyTurn); // GamePanel에 턴 정보 전달
+            } else {
+                messageQueue.add(message); // gamePanel이 null이면 메시지를 큐에 저장
+            }
+        } else if (message.startsWith("OPPONENT_NAME:")) {
+            String opponentName = message.split(":")[1];
+            if (gamePanel != null) {
+                gamePanel.setOpponentName(opponentName); // 상대방 이름 설정
+            } else {
+                messageQueue.add(message); // gamePanel이 null이면 메시지를 큐에 저장
+            }
+        } else if (message.startsWith("PLAYER_NUMBER:") || message.startsWith("PLAYER_COUNT:") ||
+                message.startsWith("GAME_START") || message.startsWith("ROUND_RESULT:")) {
             if (gamePanel != null) {
                 gamePanel.handleServerMessage(message);
             } else {
-                System.err.println("[ERROR] gamePanel이 null입니다. 메시지를 처리할 수 없습니다: " + message);
+                messageQueue.add(message); // gamePanel이 null이면 메시지를 큐에 저장
+            }
+        } else if (message.startsWith("CARD_SELECTED:")) {
+            int cardNumber = Integer.parseInt(message.split(":")[1]);
+            if (gamePanel != null) {
+                gamePanel.showOpponentCard(cardNumber); // 상대방 중앙에 카드 표시
+            } else {
+                messageQueue.add(message); // gamePanel이 null이면 메시지를 큐에 저장
             }
         } else if (message.startsWith("PLAYER1_CARD_VIEW:") || message.startsWith("PLAYER2_CARD_VIEW:")) {
             if (gamePanel != null) {
                 String cardColor = message.split(":")[1];
                 gamePanel.showOpponentCard(cardColor); // 상대방 카드 흑백 이미지 표시
+            } else {
+                messageQueue.add(message); // gamePanel이 null이면 메시지를 큐에 저장
             }
         } else {
             chatArea.append(message + "\n");
