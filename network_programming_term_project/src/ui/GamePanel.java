@@ -104,6 +104,8 @@ public class GamePanel extends JPanel {
 	public void handleServerMessage(String message) {
 		SwingUtilities.invokeLater(() -> {
 			try {
+	            System.out.println("[DEBUG] 서버로부터 메시지 수신: " + message);
+
 				if (message.startsWith("OPPONENT_NAME:")) {
 					// 상대방 이름 업데이트
 					String opponentName = message.split(":")[1];
@@ -118,10 +120,11 @@ public class GamePanel extends JPanel {
 				} else if (message.startsWith("PLAYER_COUNT:")) {
 					waitingLabel.setText("게임 시작 대기중...");
 				} else if (message.equals("GAME_START")) {
+	                System.out.println("[DEBUG] GAME_START 메시지 처리 시작");
 					startGame();
 				} else if (message.startsWith("PLAYER_READY:")) {
 					String playerName = message.split(":")[1];
-					waitingLabel.setText(playerName + " 준비 완료");
+					waitingLabel.setText(playerName + " 준비 완료");					
 				} else if (message.startsWith("CARD_SELECTED:")) {
 					// 상대방 카드 선택 처리
 					int opponentCardNumber = Integer.parseInt(message.split(":")[1]);
@@ -149,10 +152,20 @@ public class GamePanel extends JPanel {
 					String turnPlayerName = message.split(":")[1];
 					boolean isMyTurn = turnPlayerName.equals(player2.getName()); // 내 이름과 비교
 					setTurn(isMyTurn);
+					
+					if (isMyTurn) {
+	                    System.out.println("[DEBUG] 내 턴이 시작되었습니다.");
+	                    warningLabel.setText("당신의 턴입니다!");
+	                } else {
+	                    System.out.println("[DEBUG] 상대방의 턴입니다.");
+	                    warningLabel.setText("상대방의 턴을 기다리세요...");
+	                }
 
 				} else if (message.equals("TURN_END")) {
-					// 턴 종료
-					setTurn(false);
+					// 상대방이 카드를 제출한 후, 서버에서 메시지 처리
+	                System.out.println("[DEBUG] 상대방이 턴을 종료했습니다.");
+	                // 상대방의 턴이 종료되었으므로, 내 턴을 활성화
+	                setTurn(true);
 
 				} else if (message.startsWith("ROUND_RESULT:")) {
 					// 라운드 결과 처리
@@ -234,11 +247,14 @@ public class GamePanel extends JPanel {
 	 */
 	private void startGameRequest() {
 		try {
-	      dos.writeUTF("GAME_START");
-	      dos.flush();
-	    } catch (IOException e) {
-	      e.printStackTrace();
-	    }
+			dos.writeUTF("GAME_START");
+			dos.flush();
+			// 리더의 경우에도 본인의 화면을 강제로 게임 화면으로 전환
+			SwingUtilities.invokeLater(this::startGame);
+		} catch (IOException e) {
+			System.err.println("[ERROR] GAME_START 메시지 전송 실패: " + e.getMessage());
+			e.printStackTrace();
+		}   
 	}
 
 	private void sendReadySignal() {
@@ -273,6 +289,17 @@ public class GamePanel extends JPanel {
 				System.out.println("[DEBUG] 게임 시작 화면으로 전환");
 				cardLayout.show(this, "GAME_SCREEN");
 
+				 // 강제로 UI 갱신
+	            gameScreen.revalidate();
+	            gameScreen.repaint();
+	            
+	            // 추가 디버깅: 현재 표시 중인 화면 출력
+	            if (gameScreen.isShowing()) {
+	                System.out.println("[DEBUG] 게임 화면이 표시되고 있습니다.");
+	            } else {
+	                System.err.println("[ERROR] 게임 화면 표시 실패. CardLayout 확인 필요.");
+	            }
+	            
 				// 랜덤으로 선플레이어 결정
 				boolean isFirstTurn = new Random().nextBoolean();
 				isMyTurn = isFirstTurn; // 현재 플레이어가 선플레이어인지 설정
@@ -501,7 +528,7 @@ public class GamePanel extends JPanel {
 			dos.writeUTF("TURN_END");
 			dos.flush();
 
-			// 내 턴 종료
+			// 내 턴을 종료하고, 상대방의 턴을 기다림
 			setTurn(false);
 
 			// 상대방이 카드를 제출했는지 확인
@@ -692,7 +719,7 @@ public class GamePanel extends JPanel {
 
 				startTurnTimer(); // 타이머 시작
 			} else {
-				// "턴 기다리는 중" 라벨 표시
+				// 상대방의 턴일 때 -> "턴 기다리는 중" 라벨 표시
 				JLabel waitingLabel = new JLabel("턴 기다리는 중", SwingConstants.CENTER);
 				waitingLabel.setFont(new Font("굴림", Font.BOLD, 20));
 				waitingLabel.setForeground(Color.GRAY);
